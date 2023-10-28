@@ -51,6 +51,10 @@ impl Vec3 {
         Vec3 { x, y, z }
     }
 
+    pub const fn splat(v: f32) -> Self {
+        Self::new(v, v, v)
+    }
+
     pub fn scale(self, c: f32) -> Self {
         Self {
             x: self.x * c,
@@ -83,8 +87,12 @@ impl Vec3 {
         self.magnitude().recip() * self
     }
 
-    pub fn project_onto(self, rhs: Self) -> Self {
-        self.dot(rhs) / rhs.dot(rhs) * rhs
+    pub fn project_onto(self, dir: Self) -> Self {
+        self.dot(dir) / dir.dot(dir) * dir
+    }
+
+    pub fn reflect_across(self, normal: Self) -> Self {
+        self - 2. * self.project_onto(normal)
     }
 }
 
