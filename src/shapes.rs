@@ -191,7 +191,7 @@ impl Shape for Sphere {
         let xx = ray_dir.dot(ray_dir);
         let rr = self.radius * self.radius;
         let l = cx - (cx * cx - xx * (cc - rr)).sqrt();
-        if l.is_nan() || l < -EPSILON || (!include_start && l < EPSILON) {
+        if l.is_nan() || l < -EPSILON * 1e2 || (!include_start && l < EPSILON * 1e2) {
             None
         } else {
             let ray = ray_dir * l;

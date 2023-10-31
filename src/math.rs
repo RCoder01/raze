@@ -64,6 +64,22 @@ impl Vec3 {
     }
 }
 
+impl Into<[Float; 3]> for Vec3 {
+    fn into(self) -> [Float; 3] {
+        [self.x, self.y, self.z]
+    }
+}
+
+impl IntoIterator for Vec3 {
+    type Item = Float;
+
+    type IntoIter = <[Float; 3] as IntoIterator>::IntoIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        <Self as Into<[Float; 3]>>::into(self).into_iter()
+    }
+}
+
 impl Mul<Float> for Vec3 {
     type Output = Self;
 
@@ -248,6 +264,22 @@ impl Mat3x3 {
             }
         }
         Some(inverse)
+    }
+}
+
+impl Into<[Vec3; 3]> for Mat3x3 {
+    fn into(self) -> [Vec3; 3] {
+        [self.row1, self.row2, self.row3]
+    }
+}
+
+impl IntoIterator for Mat3x3 {
+    type Item = Vec3;
+
+    type IntoIter = <[Vec3; 3] as IntoIterator>::IntoIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        <Self as Into<[Vec3; 3]>>::into(self).into_iter()
     }
 }
 

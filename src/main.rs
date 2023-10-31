@@ -63,7 +63,8 @@ fn draw() {
     ];
     let tri_mesh = TriangleMesh::new(vertices, triangles);
     let sphere = Sphere::new(Vec3::new(0., 0., -0.8), 1.2);
-    let mesh: Vec<&dyn Shape> = vec![&tri_mesh, &sphere];
+    let sphere2 = Sphere::new(Vec3::new(-0.8, 1.2, 0.), 0.3);
+    let mesh: Vec<&dyn Shape> = vec![&tri_mesh, &sphere, &sphere2];
 
     let _ = remove_file("img.ppm");
     let mut file = BufWriter::new(File::create("img.ppm").unwrap());
