@@ -4,22 +4,31 @@ use std::{
     io::{self, BufWriter, Write},
 };
 
-use crate::{math::Vec3, shapes::{Shape, Sphere, TriangleMesh}};
+use crate::{
+    math::Vec3,
+    shapes::{Shape, Sphere, TriangleMesh},
+};
 
 mod math;
 mod shapes;
 
+type Float = f32;
+pub const EPSILON: Float = Float::EPSILON;
+
 fn main() {
+    draw();
+}
+
+fn draw() {
     // const RESOLUTION: (i32, i32) = (10, 10);
     const RESOLUTION: (i32, i32) = (1280, 720);
-    const CAM_XFOV: f32 = 50. / 2.;
-    const CAM_YFOV: f32 = (RESOLUTION.1 as f32 / RESOLUTION.0 as f32) * CAM_XFOV;
+    const CAM_XFOV: Float = 50. / 2.;
+    const CAM_YFOV: Float = (RESOLUTION.1 as Float / RESOLUTION.0 as Float) * CAM_XFOV;
     const CAM_POS: Vec3 = Vec3::new(-10., 10., -10.);
     let cam_fwd = Vec3::new(1., -1., 1.).normalize();
     let cam_up = Vec3::new(1., 1., 1.).normalize();
 
     let light_pos = Vec3::new(-5., 8., 10.);
-    // let light_pos = Vec3::splat(10.);
 
     let vertices = vec![
         Vec3::new(1., 1., 1.),
@@ -69,21 +78,43 @@ fn main() {
     let max_up_deflection = facing_top_z.recip() * facing_top_y;
     let cam_up_deflection = max_up_deflection * cam_up;
 
+    let mut has_sight = 0;
+    let mut no_sight = 0;
     for y in (0..RESOLUTION.1).rev() {
-        let y_percent = y as f32 / RESOLUTION.1 as f32 - 0.5;
+        let y_percent = y as Float / RESOLUTION.1 as Float - 0.5;
         for x in (0..RESOLUTION.0).rev() {
-            let x_percent = x as f32 / RESOLUTION.0 as f32 - 0.5;
+            let x_percent = x as Float / RESOLUTION.0 as Float - 0.5;
             let ray = (cam_fwd + x_percent * cam_left_deflection + y_percent * cam_up_deflection)
                 .normalize();
             let hit = mesh.ray_intersection(CAM_POS, ray);
             if let Some(collision) = hit {
                 let attenuation = (collision.position - light_pos).squared_magnitude().recip();
                 let reflected = ray.reflect_across(collision.normal);
-                let brightness = reflected
-                    .dot((light_pos - collision.position).normalize())
-                    .max(0.); // Look here for specular-ness
-                let color = Vec3::splat(brightness * attenuation * 100.);
-                write_percent_vec(&mut file, color + Vec3::splat(0.1), 0., 1.).unwrap(); // color
+                let light_relative = light_pos - collision.position;
+                let to_light_ray = light_relative.normalize();
+                let brightness = reflected.dot(to_light_ray).max(0.); // Look here for specular-ness
+                // has_sight += 1;
+                // let has_line_of_sight = !mesh
+                //     .ray_intersection(collision.position, to_light_ray)
+                //     .is_some_and(|light_collision| {
+                //         // if light_collision.normal.z.abs() < 0.5 {
+                //         // }
+                //         let blocks = (light_collision.position - collision.position).squared_magnitude()
+                //         - light_relative.squared_magnitude() < EPSILON;
+                //         if blocks && light_collision.normal.z.abs() < 0.5 && collision.position.l1_norm().lt(&2.5) {
+                //             dbg!(collision, light_collision, to_light_ray);
+                //         }
+                //         blocks
+                //     });
+                let color = Vec3::splat(
+                    brightness * attenuation * 100., // * has_line_of_sight as i32 as Float
+                );
+                // if has_line_of_sight {
+                write_percent_vec(&mut file, color + Vec3::splat(0.1), 0., 1.).unwrap();
+                // } else {
+                //     write_percent_vec(&mut file, Vec3::splat(1.), 0., 1.).unwrap();
+                // }
+                // color
                 // write_percent_vec(&mut file, collision.normal, -1., 1.).unwrap(); // normals
                 // write_percent_vec(&mut file, Vec3::splat(((CAM_POS - collision.position).magnitude() - 15.) / 3.), 0., 1.).unwrap(); // distance?
             } else {
@@ -92,9 +123,15 @@ fn main() {
         }
         file.write(b"\n").unwrap();
     }
+    dbg!(has_sight, no_sight);
 }
 
-fn write_percent_vec(file: &mut BufWriter<File>, vec: Vec3, min: f32, max: f32) -> Result<usize, io::Error> {
+fn write_percent_vec(
+    file: &mut BufWriter<File>,
+    vec: Vec3,
+    min: Float,
+    max: Float,
+) -> Result<usize, io::Error> {
     file.write(
         format!(
             "{} {} {} ",
@@ -106,6 +143,6 @@ fn write_percent_vec(file: &mut BufWriter<File>, vec: Vec3, min: f32, max: f32) 
     )
 }
 
-fn to_percent_byte(x: f32, min: f32, max: f32) -> u8 {
+fn to_percent_byte(x: Float, min: Float, max: Float) -> u8 {
     (x.clamp(min, max) * 255.).floor() as u8
 }

@@ -1,16 +1,20 @@
 use std::ops::Deref;
 
-use crate::math::Vec3;
+use super::Float;
+use crate::{
+    math::{Mat3x3, Vec3},
+    EPSILON,
+};
 
 #[derive(Debug, PartialEq)]
-pub(crate) struct Collision {
-    pub(crate) position: Vec3,
-    pub(crate) normal: Vec3,
+pub struct Collision {
+    pub position: Vec3,
+    pub normal: Vec3,
     // color, scattering, ...
 }
 
 impl Collision {
-    pub(crate) fn new(position: Vec3, normal: Vec3) -> Self {
+    pub fn new(position: Vec3, normal: Vec3) -> Self {
         Self { position, normal }
     }
 
@@ -21,7 +25,7 @@ impl Collision {
     // }
 }
 
-pub(crate) trait Shape {
+pub trait Shape {
     fn ray_intersection(&self, ray_start: Vec3, ray_dir: Vec3) -> Option<Collision>;
 }
 
@@ -51,14 +55,15 @@ where
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct TriangleMesh {
-    pub(crate) vertices: Vec<Vec3>,
-    pub(crate) triangles: Vec<[u16; 3]>,
-    pub(crate) normals: Vec<Vec3>,
+pub struct TriangleMesh {
+    pub vertices: Vec<Vec3>,
+    pub triangles: Vec<[u16; 3]>,
+    pub triangle_projections: Vec<Mat3x3>,
+    pub normals: Vec<Vec3>,
 }
 
 impl TriangleMesh {
-    pub(crate) fn new(vertices: Vec<Vec3>, triangles: Vec<[u16; 3]>) -> Self {
+    pub fn new(vertices: Vec<Vec3>, triangles: Vec<[u16; 3]>) -> Self {
         let normals: Vec<_> = triangles
             .iter()
             .copied()
@@ -68,12 +73,30 @@ impl TriangleMesh {
                     .normalize()
             })
             .collect();
+        let triangle_projections = triangles
+            .iter()
+            .copied()
+            .zip(normals.iter().cloned())
+            .map(|([a, b, c], normal)| {
+                let v100 = vertices[b as usize] - vertices[a as usize];
+                let v010 = vertices[c as usize] - vertices[a as usize];
+                let v001 = vertices[a as usize].project_onto(normal);
+                let fwd_change_of_basis = Mat3x3::from_col_vectors(v100, v010, v001);
+                let inv = fwd_change_of_basis.inverse().unwrap();
+                inv
+            })
+            .collect();
         Self {
             vertices,
             triangles,
+            triangle_projections,
             normals,
         }
     }
+
+    // pub fn with_uvs() {
+    //     todo!()
+    // }
 }
 
 impl Shape for TriangleMesh {
@@ -82,53 +105,58 @@ impl Shape for TriangleMesh {
             .triangles
             .iter()
             .copied()
-            .zip(self.normals.iter().copied())
+            .zip(self.triangle_projections.iter())
             .enumerate()
-            .filter_map(|(i, ([a, b, c], normal))| {
-                if ray_dir.dot(normal) > -1e-5 {
-                    // ray and normal are roughly the same direction
+            .filter_map(|(i, ([a, b, c], projection))| {
+                let start_in_triangle_space = projection * ray_start;
+                // dbg!(
+                //     start_in_triangle_space,
+                //     self.vertices[a as usize],
+                //     self.vertices[b as usize],
+                //     self.vertices[c as usize],
+                //     projection
+                // );
+                if start_in_triangle_space.z <= -1. {
+                    return None;
+                }
+                let ray_in_triangle_space = projection * ray_dir;
+                let u = self.vertices[b as usize] - self.vertices[a as usize];
+                let v = self.vertices[c as usize] - self.vertices[a as usize];
+                let w = self.vertices[a as usize];
+                let mut corner_in_triangle_space = projection * w;
+                // dbg!(corner_in_triangle_space, ray_in_triangle_space);
+                corner_in_triangle_space.z = 0.;
+                let ray_scale = (1. - start_in_triangle_space.z) / ray_in_triangle_space.z;
+                // dbg!(ray_scale);
+                let uvw = ray_in_triangle_space * ray_scale + start_in_triangle_space
+                    - corner_in_triangle_space;
+                // dbg!(uvw);
+                if uvw.x + uvw.y > 1. + EPSILON
+                    || uvw.x < -EPSILON
+                    || uvw.y < -EPSILON
+                    || ray_in_triangle_space.z.abs() <= EPSILON
+                    || ray_scale.abs() <= EPSILON
+                {
                     return None;
                 }
 
-                let vertices = [
-                    self.vertices[a as usize] - ray_start,
-                    self.vertices[b as usize] - ray_start,
-                    self.vertices[c as usize] - ray_start,
-                ];
-                if vertices.iter().all(|vertex| vertex.dot(ray_dir) < -1e-5) {
-                    return None;
-                }
-                // println!("{}, {:?}", i, ray_dir);
-
-                let normals = [
-                    vertices[1].cross(vertices[0]),
-                    vertices[2].cross(vertices[1]),
-                    vertices[0].cross(vertices[2]),
-                ];
-
-                let intersects = normals.iter().all(|normal| normal.dot(ray_dir) > -1e-5);
-                if !intersects {
-                    return None;
-                }
-                let distance = (vertices[0]).project_onto(normal);
-                let intersect_point =
-                    (ray_dir.dot(distance) / distance.squared_magnitude()).recip() * ray_dir;
-                Some((i, intersect_point))
+                // Some((i, dbg!(w + uvw.x * u + uvw.y * v), ray_scale))
+                Some((i, w + uvw.x * u + uvw.y * v, ray_scale))
             })
-            .min_by(|(_, v1), (_, v2)| v1.squared_magnitude().total_cmp(&v2.squared_magnitude()));
+            .min_by(|(_, _, d1), (_, _, d2)| d1.total_cmp(&d2));
         nearest_collision
-            .map(|(i, intersect)| Collision::new(ray_start + intersect, self.normals[i]))
+            .map(|(i, intersect, _)| Collision::new(intersect, self.normals[i]))
     }
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct Sphere {
-    pub(crate) center: Vec3,
-    pub(crate) radius: f32,
+pub struct Sphere {
+    pub center: Vec3,
+    pub radius: Float,
 }
 
 impl Sphere {
-    pub(crate) fn new(center: Vec3, radius: f32) -> Self {
+    pub fn new(center: Vec3, radius: Float) -> Self {
         Self { center, radius }
     }
 }
