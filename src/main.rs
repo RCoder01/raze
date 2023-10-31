@@ -13,7 +13,8 @@ mod math;
 mod shapes;
 
 type Float = f32;
-pub const EPSILON: Float = Float::EPSILON;
+// pub const EPSILON: Float = Float::EPSILON;
+pub const EPSILON: Float = 1e-5;
 
 fn main() {
     draw();
@@ -61,7 +62,7 @@ fn draw() {
         [0b110, 0b011, 0b010],
     ];
     let tri_mesh = TriangleMesh::new(vertices, triangles);
-    let sphere = Sphere::new(Vec3::splat(0.), 1.2);
+    let sphere = Sphere::new(Vec3::new(0., 0., -0.8), 1.2);
     let mesh: Vec<&dyn Shape> = vec![&tri_mesh, &sphere];
 
     let _ = remove_file("img.ppm");
@@ -86,35 +87,29 @@ fn draw() {
             let x_percent = x as Float / RESOLUTION.0 as Float - 0.5;
             let ray = (cam_fwd + x_percent * cam_left_deflection + y_percent * cam_up_deflection)
                 .normalize();
-            let hit = mesh.ray_intersection(CAM_POS, ray);
+            let hit = mesh.ray_intersection(CAM_POS, ray, false);
             if let Some(collision) = hit {
-                let attenuation = (collision.position - light_pos).squared_magnitude().recip();
-                let reflected = ray.reflect_across(collision.normal);
                 let light_relative = light_pos - collision.position;
                 let to_light_ray = light_relative.normalize();
+                let has_line_of_sight = !mesh
+                    .ray_intersection(collision.position, to_light_ray, true)
+                    .is_some_and(|light_collision| {
+                        (light_collision.position - collision.position).squared_magnitude()
+                            - light_relative.squared_magnitude()
+                            < EPSILON
+                    });
+                if has_line_of_sight {
+                    has_sight += 1;
+                } else {
+                    no_sight += 1;
+                }
+                let attenuation = (collision.position - light_pos).squared_magnitude().recip();
+                let reflected = ray.reflect_across(collision.normal);
                 let brightness = reflected.dot(to_light_ray).max(0.); // Look here for specular-ness
-                // has_sight += 1;
-                // let has_line_of_sight = !mesh
-                //     .ray_intersection(collision.position, to_light_ray)
-                //     .is_some_and(|light_collision| {
-                //         // if light_collision.normal.z.abs() < 0.5 {
-                //         // }
-                //         let blocks = (light_collision.position - collision.position).squared_magnitude()
-                //         - light_relative.squared_magnitude() < EPSILON;
-                //         if blocks && light_collision.normal.z.abs() < 0.5 && collision.position.l1_norm().lt(&2.5) {
-                //             dbg!(collision, light_collision, to_light_ray);
-                //         }
-                //         blocks
-                //     });
                 let color = Vec3::splat(
-                    brightness * attenuation * 100., // * has_line_of_sight as i32 as Float
+                    brightness * attenuation * 100. * has_line_of_sight as i32 as Float,
                 );
-                // if has_line_of_sight {
                 write_percent_vec(&mut file, color + Vec3::splat(0.1), 0., 1.).unwrap();
-                // } else {
-                //     write_percent_vec(&mut file, Vec3::splat(1.), 0., 1.).unwrap();
-                // }
-                // color
                 // write_percent_vec(&mut file, collision.normal, -1., 1.).unwrap(); // normals
                 // write_percent_vec(&mut file, Vec3::splat(((CAM_POS - collision.position).magnitude() - 15.) / 3.), 0., 1.).unwrap(); // distance?
             } else {
