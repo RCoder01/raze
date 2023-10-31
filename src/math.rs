@@ -1,45 +1,6 @@
-use std::ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign, Div, Index};
+use std::ops::{Add, AddAssign, Div, Index, Mul, Neg, Sub, SubAssign};
 
-// #[derive(Debug)]
-// pub struct Vector<D, const N: usize>([D; N]);
-
-// impl<D, const N: usize> Vector<D, N> {
-//     pub const fn new(data: [D; N]) -> Self {
-//         Self(data)
-//     }
-// }
-
-// impl<D, const N: usize> Default for Vector<D, N>
-// where
-//     D: Default
-// {
-//     fn default() -> Self {
-//         Self((0..N).map(|_| D::default()).collect::<Vec<_>>().try_into().ok().unwrap())
-//     }
-// }
-
-// impl<D, const N: usize> Add for Vector<D, N>
-// where
-//     D: Add,
-// {
-//     type Output = Vector<<D as Add>::Output, N>;
-
-//     fn add(self, rhs: Self) -> Self::Output {
-//         let result: Vec<_> = self
-//             .0
-//             .into_iter()
-//             .zip(rhs.0.into_iter())
-//             .map(|(a, b)| a + b)
-//             .collect();
-//         Vector(result.try_into().ok().unwrap())
-//     }
-// }
-
-// impl<D, const N: usize> Vector<D, N> {}
-
-// pub type Matrix<D, const N: usize, const M: usize> = Vector<Vector<D, N>, M>;
-
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 pub struct Vec3 {
     pub x: f32,
     pub y: f32,
@@ -95,14 +56,6 @@ impl Vec3 {
         self - 2. * self.project_onto(normal)
     }
 }
-
-// impl Mul for Vec3 {
-//     type Output = f32;
-
-//     fn mul(self, rhs: Self) -> Self::Output {
-//         self.dot(rhs)
-//     }
-// }
 
 impl Mul<f32> for Vec3 {
     type Output = Vec3;
@@ -175,7 +128,7 @@ impl Index<usize> for Vec3 {
             0 => &self.x,
             1 => &self.y,
             2 => &self.z,
-            _ => panic!("Index out of bounds for Vec3")
+            i => panic!("Index {i} out of bounds for Vec3"),
         }
     }
 }
