@@ -29,7 +29,10 @@ Future objectives:
 - [ ] Fog
 - [ ] Translucent materials?
   - [ ] Variable refractive indexes
+  - [ ] Solid materials
 - [ ] Improved performance
-- [ ] Compute on the GPU?
+  - [ ] Parallelization
+  - [ ] More Vectorization?
+  - [ ] Compute on the GPU?
 - [ ] Nonlinear light (ie. graviational effects)?
 - [ ] Moving objects

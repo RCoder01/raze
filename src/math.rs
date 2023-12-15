@@ -1,25 +1,33 @@
-use super::Float;
+
 use std::ops::{
     Add, AddAssign, Div, DivAssign, Index, IndexMut, Mul, MulAssign, Neg, Sub, SubAssign,
 };
 
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub struct Vec3 {
-    pub x: Float,
-    pub y: Float,
-    pub z: Float,
+    pub x: f64,
+    pub y: f64,
+    pub z: f64,
 }
 
 impl Vec3 {
-    pub const fn new(x: Float, y: Float, z: Float) -> Self {
+    pub const ZERO: Vec3 = Vec3 { x: 0., y: 0., z: 0.};
+    pub const X: Vec3 = Vec3 { x: 1., y: 0., z: 0.};
+    pub const Y: Vec3 = Vec3 { x: 0., y: 1., z: 0.};
+    pub const Z: Vec3 = Vec3 { x: 0., y: 0., z: 1.};
+    pub const NEG_X: Vec3 = Vec3 { x: -1., y: 0., z: 0.};
+    pub const NEG_Y: Vec3 = Vec3 { x: 0., y: -1., z: 0.};
+    pub const NEG_Z: Vec3 = Vec3 { x: 0., y: 0., z: -1.};
+
+    pub const fn new(x: f64, y: f64, z: f64) -> Self {
         Vec3 { x, y, z }
     }
 
-    pub const fn splat(v: Float) -> Self {
+    pub const fn splat(v: f64) -> Self {
         Self::new(v, v, v)
     }
 
-    pub fn scale(self, c: Float) -> Self {
+    pub fn scale(self, c: f64) -> Self {
         Self {
             x: self.x * c,
             y: self.y * c,
@@ -27,7 +35,7 @@ impl Vec3 {
         }
     }
 
-    pub fn dot(self, rhs: Self) -> Float {
+    pub fn dot(self, rhs: Self) -> f64 {
         self.x * rhs.x + self.y * rhs.y + self.z * rhs.z
     }
 
@@ -39,11 +47,13 @@ impl Vec3 {
         }
     }
 
-    pub fn squared_magnitude(self) -> Float {
+    pub fn squared_magnitude(self) -> f64 {
         self.dot(self)
     }
 
-    pub fn magnitude(self) -> Float {
+    #[doc(alias = "l2_norm")]
+    #[doc(alias = "length")]
+    pub fn magnitude(self) -> f64 {
         self.squared_magnitude().sqrt()
     }
 
@@ -51,44 +61,57 @@ impl Vec3 {
         self.magnitude().recip() * self
     }
 
+    pub fn normalize_or_zero(self) -> Self {
+        let mag = self.magnitude();
+        if mag == 0. {
+            Self::ZERO
+        } else {
+            mag.recip() * self
+        }
+    }
+
     pub fn project_onto(self, dir: Self) -> Self {
         self.dot(dir) / dir.dot(dir) * dir
+    }
+
+    pub fn reject_wrt(self, dir: Self) -> Self {
+        self - self.project_onto(dir)
     }
 
     pub fn reflect_across(self, normal: Self) -> Self {
         self - 2. * self.project_onto(normal)
     }
 
-    pub fn l1_norm(self) -> Float {
+    pub fn l1_norm(self) -> f64 {
         self.x.abs() + self.y.abs() + self.z.abs()
     }
 }
 
-impl Into<[Float; 3]> for Vec3 {
-    fn into(self) -> [Float; 3] {
-        [self.x, self.y, self.z]
+impl From<Vec3> for [f64; 3] {
+    fn from(value: Vec3) -> Self {
+        [value.x, value.y, value.z]
     }
 }
 
 impl IntoIterator for Vec3 {
-    type Item = Float;
+    type Item = f64;
 
-    type IntoIter = <[Float; 3] as IntoIterator>::IntoIter;
+    type IntoIter = <[f64; 3] as IntoIterator>::IntoIter;
 
     fn into_iter(self) -> Self::IntoIter {
-        <Self as Into<[Float; 3]>>::into(self).into_iter()
+        <Self as Into<[f64; 3]>>::into(self).into_iter()
     }
 }
 
-impl Mul<Float> for Vec3 {
+impl Mul<f64> for Vec3 {
     type Output = Self;
 
-    fn mul(self, rhs: Float) -> Self::Output {
+    fn mul(self, rhs: f64) -> Self::Output {
         self.scale(rhs)
     }
 }
 
-impl Mul<Vec3> for Float {
+impl Mul<Vec3> for f64 {
     type Output = Vec3;
 
     fn mul(self, rhs: Vec3) -> Self::Output {
@@ -96,22 +119,23 @@ impl Mul<Vec3> for Float {
     }
 }
 
-impl MulAssign<Float> for Vec3 {
-    fn mul_assign(&mut self, rhs: Float) {
+impl MulAssign<f64> for Vec3 {
+    fn mul_assign(&mut self, rhs: f64) {
         *self = *self * rhs;
     }
 }
 
-impl Div<Float> for Vec3 {
+impl Div<f64> for Vec3 {
     type Output = Self;
 
-    fn div(self, rhs: Float) -> Self::Output {
+    fn div(self, rhs: f64) -> Self::Output {
+        #![allow(clippy::suspicious_arithmetic_impl)]
         rhs.recip() * self
     }
 }
 
-impl DivAssign<Float> for Vec3 {
-    fn div_assign(&mut self, rhs: Float) {
+impl DivAssign<f64> for Vec3 {
+    fn div_assign(&mut self, rhs: f64) {
         *self = *self / rhs;
     }
 }
@@ -156,7 +180,7 @@ impl SubAssign for Vec3 {
 }
 
 impl Index<usize> for Vec3 {
-    type Output = Float;
+    type Output = f64;
 
     fn index(&self, index: usize) -> &Self::Output {
         match index {
@@ -187,7 +211,7 @@ pub struct Mat3x3 {
 }
 
 impl Mat3x3 {
-    pub fn from_col_vectors(col1: Vec3, col2: Vec3, col3: Vec3) -> Self {
+    pub const fn from_col_vectors(col1: Vec3, col2: Vec3, col3: Vec3) -> Self {
         Mat3x3 {
             row1: Vec3::new(col1.x, col2.x, col3.x),
             row2: Vec3::new(col1.y, col2.y, col3.y),
@@ -195,11 +219,11 @@ impl Mat3x3 {
         }
     }
 
-    pub fn from_row_vectors(row1: Vec3, row2: Vec3, row3: Vec3) -> Self {
+    pub const fn from_row_vectors(row1: Vec3, row2: Vec3, row3: Vec3) -> Self {
         Self { row1, row2, row3 }
     }
 
-    pub fn identity() -> Self {
+    pub const fn identity() -> Self {
         Mat3x3::from_col_vectors(
             Vec3::new(1., 0., 0.),
             Vec3::new(0., 1., 0.),
@@ -207,11 +231,11 @@ impl Mat3x3 {
         )
     }
 
-    pub fn transpose(&self) -> Self {
+    pub const fn transpose(&self) -> Self {
         Mat3x3::from_col_vectors(self.row1, self.row2, self.row3)
     }
 
-    pub fn scale(mut self, c: Float) -> Self {
+    pub fn scale(mut self, c: f64) -> Self {
         for i in 0..3 {
             self[i] *= c;
         }
@@ -267,9 +291,9 @@ impl Mat3x3 {
     }
 }
 
-impl Into<[Vec3; 3]> for Mat3x3 {
-    fn into(self) -> [Vec3; 3] {
-        [self.row1, self.row2, self.row3]
+impl From<Mat3x3> for [Vec3; 3] {
+    fn from(val: Mat3x3) -> Self {
+        [val.row1, val.row2, val.row3]
     }
 }
 
@@ -283,15 +307,15 @@ impl IntoIterator for Mat3x3 {
     }
 }
 
-impl Mul<Float> for Mat3x3 {
+impl Mul<f64> for Mat3x3 {
     type Output = Self;
 
-    fn mul(self, rhs: Float) -> Self::Output {
+    fn mul(self, rhs: f64) -> Self::Output {
         self.scale(rhs)
     }
 }
 
-impl Mul<Mat3x3> for Float {
+impl Mul<Mat3x3> for f64 {
     type Output = Mat3x3;
 
     fn mul(self, rhs: Mat3x3) -> Self::Output {
@@ -324,8 +348,8 @@ impl Mul<&Mat3x3> for &Mat3x3 {
     }
 }
 
-impl MulAssign<Float> for Mat3x3 {
-    fn mul_assign(&mut self, rhs: Float) {
+impl MulAssign<f64> for Mat3x3 {
+    fn mul_assign(&mut self, rhs: f64) {
         for i in 0..3 {
             self[i] *= rhs;
         }
@@ -375,16 +399,18 @@ impl Mul<&Mat3x3> for Vec3 {
     }
 }
 
-impl Div<Float> for Mat3x3 {
+impl Div<f64> for Mat3x3 {
     type Output = Self;
 
-    fn div(self, rhs: Float) -> Self::Output {
+    fn div(self, rhs: f64) -> Self::Output {
+        #![allow(clippy::suspicious_arithmetic_impl)]
         rhs.recip() * self
     }
 }
 
-impl DivAssign<Float> for Mat3x3 {
-    fn div_assign(&mut self, rhs: Float) {
+impl DivAssign<f64> for Mat3x3 {
+    fn div_assign(&mut self, rhs: f64) {
+        #![allow(clippy::suspicious_op_assign_impl)]
         *self *= rhs.recip();
     }
 }
@@ -456,5 +482,17 @@ impl IndexMut<usize> for Mat3x3 {
             2 => &mut self.row3,
             i => panic!("Index {i} out of bounds for Vec3"),
         }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Ray {
+    pub start: Vec3,
+    pub dir: Vec3,
+}
+
+impl Ray {
+    pub const fn new(start: Vec3, dir: Vec3) -> Self {
+        Self { start, dir }
     }
 }

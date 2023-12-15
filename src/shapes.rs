@@ -1,8 +1,8 @@
 use std::ops::Deref;
 
-use super::Float;
+
 use crate::{
-    math::{Mat3x3, Vec3},
+    math::{Mat3x3, Ray, Vec3},
     EPSILON,
 };
 
@@ -26,14 +26,9 @@ impl Collision {
 }
 
 pub trait Shape {
-    // when ray_start is on some surface, only if include start
+    // when ray_start is on some surface, only if include_start
     // and the ray is facing into the surface, it should return a collision
-    fn ray_intersection(
-        &self,
-        ray_start: Vec3,
-        ray_dir: Vec3,
-        include_start: bool,
-    ) -> Option<Collision>;
+    fn ray_intersection(&self, ray: Ray, include_start: bool) -> Option<Collision>;
 }
 
 impl<T> Shape for T
@@ -41,13 +36,8 @@ where
     T: Deref,
     T::Target: Shape,
 {
-    fn ray_intersection(
-        &self,
-        ray_start: Vec3,
-        ray_dir: Vec3,
-        include_start: bool,
-    ) -> Option<Collision> {
-        (**self).ray_intersection(ray_start, ray_dir, include_start)
+    fn ray_intersection(&self, ray: Ray, include_start: bool) -> Option<Collision> {
+        (**self).ray_intersection(ray, include_start)
     }
 }
 
@@ -55,18 +45,13 @@ impl<T> Shape for [T]
 where
     T: Shape,
 {
-    fn ray_intersection(
-        &self,
-        ray_start: Vec3,
-        ray_dir: Vec3,
-        include_start: bool,
-    ) -> Option<Collision> {
+    fn ray_intersection(&self, ray: Ray, include_start: bool) -> Option<Collision> {
         self.iter()
-            .filter_map(|shape| shape.ray_intersection(ray_start, ray_dir, include_start))
+            .filter_map(|shape| shape.ray_intersection(ray.clone(), include_start))
             .min_by(|c1, c2| {
-                (c1.position - ray_start)
+                (c1.position - ray.start)
                     .squared_magnitude()
-                    .total_cmp(&(c2.position - ray_start).squared_magnitude())
+                    .total_cmp(&(c2.position - ray.start).squared_magnitude())
             })
     }
 }
@@ -99,8 +84,7 @@ impl TriangleMesh {
                 let v010 = vertices[c as usize] - vertices[a as usize];
                 let v001 = vertices[a as usize].project_onto(normal);
                 let fwd_change_of_basis = Mat3x3::from_col_vectors(v100, v010, v001);
-                let inv = fwd_change_of_basis.inverse().unwrap();
-                inv
+                fwd_change_of_basis.inverse().unwrap()
             })
             .collect();
         Self {
@@ -117,12 +101,7 @@ impl TriangleMesh {
 }
 
 impl Shape for TriangleMesh {
-    fn ray_intersection(
-        &self,
-        ray_start: Vec3,
-        ray_dir: Vec3,
-        include_start: bool,
-    ) -> Option<Collision> {
+    fn ray_intersection(&self, ray: Ray, include_start: bool) -> Option<Collision> {
         let nearest_collision = self
             .triangles
             .iter()
@@ -130,14 +109,14 @@ impl Shape for TriangleMesh {
             .zip(self.triangle_projections.iter())
             .enumerate()
             .filter_map(|(i, ([a, b, c], projection))| {
-                let start_in_triangle_space = projection * ray_start;
-                if ray_dir.dot(self.normals[i]) > -EPSILON
+                let start_in_triangle_space = projection * ray.start;
+                if ray.dir.dot(self.normals[i]) > -EPSILON
                     || start_in_triangle_space.z < -1. - EPSILON
                     || (!include_start && start_in_triangle_space.z < -1. + EPSILON)
                 {
                     return None;
                 }
-                let ray_in_triangle_space = projection * ray_dir;
+                let ray_in_triangle_space = projection * ray.dir;
                 let u = self.vertices[b as usize] - self.vertices[a as usize];
                 let v = self.vertices[c as usize] - self.vertices[a as usize];
                 let w = self.vertices[a as usize];
@@ -161,7 +140,7 @@ impl Shape for TriangleMesh {
                 }
                 Some((i, w + uvw.x * u + uvw.y * v, ray_scale))
             })
-            .min_by(|(_, _, d1), (_, _, d2)| d1.total_cmp(&d2));
+            .min_by(|(_, _, d1), (_, _, d2)| d1.total_cmp(d2));
         nearest_collision.map(|(i, intersect, _)| Collision::new(intersect, self.normals[i]))
     }
 }
@@ -169,35 +148,29 @@ impl Shape for TriangleMesh {
 #[derive(Debug, Clone)]
 pub struct Sphere {
     pub center: Vec3,
-    pub radius: Float,
+    pub radius: f64,
 }
 
 impl Sphere {
-    pub fn new(center: Vec3, radius: Float) -> Self {
+    pub fn new(center: Vec3, radius: f64) -> Self {
         Self { center, radius }
     }
 }
 
 impl Shape for Sphere {
-    fn ray_intersection(
-        &self,
-        ray_start: Vec3,
-        ray_dir: Vec3,
-        include_start: bool,
-    ) -> Option<Collision> {
-        let relative_center = self.center - ray_start;
-        let cx = relative_center.dot(ray_dir);
+    fn ray_intersection(&self, ray: Ray, include_start: bool) -> Option<Collision> {
+        let relative_center = self.center - ray.start;
+        let cx = relative_center.dot(ray.dir);
         let cc = relative_center.dot(relative_center);
-        let xx = ray_dir.dot(ray_dir);
+        let xx = ray.dir.dot(ray.dir);
         let rr = self.radius * self.radius;
         let l = cx - (cx * cx - xx * (cc - rr)).sqrt();
         if l.is_nan() || l < -EPSILON * 1e2 || (!include_start && l < EPSILON * 1e2) {
             None
         } else {
-            let ray = ray_dir * l;
-            let point = ray + ray_start;
-            let normal = (relative_center - ray).normalize();
-            Some(Collision::new(point, normal))
+            let ray_dist = ray.dir * l;
+            let normal = (relative_center - ray_dist).normalize();
+            Some(Collision::new(ray_dist + ray.start, normal))
         }
     }
 }
