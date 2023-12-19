@@ -1,6 +1,5 @@
 use std::ops::Deref;
 
-
 use crate::{
     math::{Mat3x3, Ray, Vec3},
     EPSILON,
@@ -18,6 +17,14 @@ impl Collision {
         Self { position, normal }
     }
 
+    pub fn reflect_ray(&self, dir: Vec3) -> Vec3 {
+        dir.reflect_across(self.normal)
+    }
+
+    pub fn outgoing_ray(&self, incoming_dir: Vec3) -> Ray {
+        Ray::new(self.position, self.reflect_ray(incoming_dir))
+    }
+
     // fn cmp(&self, other: &Self) -> Ordering {
     //     self.position
     //         .squared_magnitude()
@@ -29,6 +36,14 @@ pub trait Shape {
     // when ray_start is on some surface, only if include_start
     // and the ray is facing into the surface, it should return a collision
     fn ray_intersection(&self, ray: Ray, include_start: bool) -> Option<Collision>;
+
+    fn intersect_inclusive(&self, ray: Ray) -> Option<Collision> {
+        self.ray_intersection(ray, true)
+    }
+
+    fn intersect_exclusive(&self, ray: Ray) -> Option<Collision> {
+        self.ray_intersection(ray, false)
+    }
 }
 
 impl<T> Shape for T
@@ -169,7 +184,37 @@ impl Shape for Sphere {
             None
         } else {
             let ray_dist = ray.dir * l;
-            let normal = (relative_center - ray_dist).normalize();
+            let normal = (ray_dist - relative_center).normalize();
+            Some(Collision::new(ray_dist + ray.start, normal))
+        }
+    }
+}
+
+pub struct InvertedSphere {
+    pub sphere: Sphere,
+}
+
+impl InvertedSphere {
+    pub fn new(center: Vec3, radius: f64) -> Self {
+        Self {
+            sphere: Sphere::new(center, radius),
+        }
+    }
+}
+
+impl Shape for InvertedSphere {
+    fn ray_intersection(&self, ray: Ray, include_start: bool) -> Option<Collision> {
+        let relative_center = self.sphere.center - ray.start;
+        let cx = relative_center.dot(ray.dir);
+        let cc = relative_center.dot(relative_center);
+        let xx = ray.dir.dot(ray.dir);
+        let rr = self.sphere.radius * self.sphere.radius;
+        let l = cx + (cx * cx - xx * (cc - rr)).sqrt();
+        if l.is_nan() || l < -EPSILON * 1e2 || (!include_start && l < EPSILON * 1e2) {
+            None
+        } else {
+            let ray_dist = ray.dir * l;
+            let normal = -(relative_center - ray_dist).normalize();
             Some(Collision::new(ray_dist + ray.start, normal))
         }
     }
