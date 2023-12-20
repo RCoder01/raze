@@ -141,8 +141,7 @@ impl<S: Shape> Scene<S> {
     pub fn brightness(&self, ray: Ray) -> f64 {
         let light_relative = self.light_pos - ray.start;
         let to_light_ray_dist = light_relative.normalize();
-        let brightness = ray.dir.dot(to_light_ray_dist).max(0.);
-        brightness
+        ray.dir.dot(to_light_ray_dist).max(0.)
     }
 
     pub fn pixel_ray(&self, x: u32, y: u32) -> Ray {
@@ -162,7 +161,7 @@ impl<S: Shape> Scene<S> {
             .world
             .intersect_inclusive(to_light_ray)
             .is_some_and(|collision| {
-                (collision.position - pos).squared_magnitude() - light_relative.squared_magnitude()
+                collision.distance.powi(2) - light_relative.squared_magnitude()
                     < EPSILON
             })
     }

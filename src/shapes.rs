@@ -1,35 +1,64 @@
-use std::ops::Deref;
+use std::{ops::{Deref, DerefMut}, cmp::Ordering};
 
 use crate::{
     math::{Mat3x3, Ray, Vec3},
     EPSILON,
 };
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone)]
+pub struct RayCollision {
+    pub ray: Ray,
+    pub collision: Collision,
+}
+
+impl RayCollision {
+    pub fn new(ray: Ray, collision: Collision) -> Self {
+        Self { ray, collision }
+    }
+
+    pub fn position(&self) -> Vec3 {
+        self.ray.translate(self.collision.distance)
+    }
+
+    pub fn reflection(&self) -> Ray {
+        Ray::new(
+            self.position(),
+            self.ray.dir.reflect_across(self.collision.normal),
+        )
+    }
+}
+
+impl Deref for RayCollision {
+    type Target = Collision;
+
+    fn deref(&self) -> &Self::Target {
+        &self.collision
+    }
+}
+
+impl DerefMut for RayCollision {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.collision
+    }
+}
+
+#[derive(Debug, PartialEq, Clone)]
 pub struct Collision {
-    pub position: Vec3,
+    pub distance: f64,
     pub normal: Vec3,
     // color, scattering, ...
 }
 
+impl PartialOrd for Collision {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        self.distance.partial_cmp(&other.distance)
+    }
+}
+
 impl Collision {
-    pub fn new(position: Vec3, normal: Vec3) -> Self {
-        Self { position, normal }
+    pub fn new(distance: f64, normal: Vec3) -> Self {
+        Self { distance, normal }
     }
-
-    pub fn reflect_ray(&self, dir: Vec3) -> Vec3 {
-        dir.reflect_across(self.normal)
-    }
-
-    pub fn outgoing_ray(&self, incoming_dir: Vec3) -> Ray {
-        Ray::new(self.position, self.reflect_ray(incoming_dir))
-    }
-
-    // fn cmp(&self, other: &Self) -> Ordering {
-    //     self.position
-    //         .squared_magnitude()
-    //         .total_cmp(&other.position.squared_magnitude())
-    // }
 }
 
 pub trait Shape {
@@ -37,12 +66,12 @@ pub trait Shape {
     // and the ray is facing into the surface, it should return a collision
     fn ray_intersection(&self, ray: Ray, include_start: bool) -> Option<Collision>;
 
-    fn intersect_inclusive(&self, ray: Ray) -> Option<Collision> {
-        self.ray_intersection(ray, true)
+    fn intersect_inclusive(&self, ray: Ray) -> Option<RayCollision> {
+        self.ray_intersection(ray.clone(), true).map(|collision| RayCollision::new(ray, collision))
     }
 
-    fn intersect_exclusive(&self, ray: Ray) -> Option<Collision> {
-        self.ray_intersection(ray, false)
+    fn intersect_exclusive(&self, ray: Ray) -> Option<RayCollision> {
+        self.ray_intersection(ray.clone(), false).map(|collision| RayCollision::new(ray, collision))
     }
 }
 
@@ -64,9 +93,8 @@ where
         self.iter()
             .filter_map(|shape| shape.ray_intersection(ray.clone(), include_start))
             .min_by(|c1, c2| {
-                (c1.position - ray.start)
-                    .squared_magnitude()
-                    .total_cmp(&(c2.position - ray.start).squared_magnitude())
+                c1.partial_cmp(c2)
+                    .expect("Collision distance should not be NaN")
             })
     }
 }
@@ -123,7 +151,7 @@ impl Shape for TriangleMesh {
             .copied()
             .zip(self.triangle_projections.iter())
             .enumerate()
-            .filter_map(|(i, ([a, b, c], projection))| {
+            .filter_map(|(i, ([a, _b, _c], projection))| {
                 let start_in_triangle_space = projection * ray.start;
                 if ray.dir.dot(self.normals[i]) > -EPSILON
                     || start_in_triangle_space.z < -1. - EPSILON
@@ -132,8 +160,6 @@ impl Shape for TriangleMesh {
                     return None;
                 }
                 let ray_in_triangle_space = projection * ray.dir;
-                let u = self.vertices[b as usize] - self.vertices[a as usize];
-                let v = self.vertices[c as usize] - self.vertices[a as usize];
                 let w = self.vertices[a as usize];
                 let mut corner_in_triangle_space = projection * w;
                 corner_in_triangle_space.z = 0.;
@@ -153,10 +179,10 @@ impl Shape for TriangleMesh {
                 {
                     return None;
                 }
-                Some((i, w + uvw.x * u + uvw.y * v, ray_scale))
+                Some((i, ray_scale))
             })
-            .min_by(|(_, _, d1), (_, _, d2)| d1.total_cmp(d2));
-        nearest_collision.map(|(i, intersect, _)| Collision::new(intersect, self.normals[i]))
+            .min_by(|(_, d1), (_, d2)| d1.total_cmp(d2));
+        nearest_collision.map(|(i, intersect)| Collision::new(intersect, self.normals[i]))
     }
 }
 
@@ -179,43 +205,53 @@ impl Shape for Sphere {
         let cc = relative_center.dot(relative_center);
         let xx = ray.dir.dot(ray.dir);
         let rr = self.radius * self.radius;
-        let l = cx - (cx * cx - xx * (cc - rr)).sqrt();
-        if l.is_nan() || l < -EPSILON * 1e2 || (!include_start && l < EPSILON * 1e2) {
-            None
-        } else {
-            let ray_dist = ray.dir * l;
-            let normal = (ray_dist - relative_center).normalize();
-            Some(Collision::new(ray_dist + ray.start, normal))
+        let root = cx * cx - xx * (cc - rr);
+        if root.is_sign_negative() {
+            return None;
         }
+        let l = cx - root.sqrt();
+        if !include_start && l < EPSILON {
+            return None;
+        }
+        let normal = (ray.dir * l - relative_center) / self.radius;
+        Some(Collision::new(l, normal))
     }
 }
 
-pub struct InvertedSphere {
-    pub sphere: Sphere,
-}
+#[derive(Debug, Clone)]
+pub struct InvertedSphere(Sphere);
 
 impl InvertedSphere {
     pub fn new(center: Vec3, radius: f64) -> Self {
-        Self {
-            sphere: Sphere::new(center, radius),
-        }
+        Self(Sphere::new(center, radius))
+    }
+}
+
+impl From<Sphere> for InvertedSphere {
+    fn from(value: Sphere) -> Self {
+        Self(value)
+    }
+}
+
+impl From<InvertedSphere> for Sphere {
+    fn from(value: InvertedSphere) -> Self {
+        value.0
     }
 }
 
 impl Shape for InvertedSphere {
     fn ray_intersection(&self, ray: Ray, include_start: bool) -> Option<Collision> {
-        let relative_center = self.sphere.center - ray.start;
+        let relative_center = self.0.center - ray.start;
         let cx = relative_center.dot(ray.dir);
         let cc = relative_center.dot(relative_center);
         let xx = ray.dir.dot(ray.dir);
-        let rr = self.sphere.radius * self.sphere.radius;
+        let rr = self.0.radius * self.0.radius;
         let l = cx + (cx * cx - xx * (cc - rr)).sqrt();
         if l.is_nan() || l < -EPSILON * 1e2 || (!include_start && l < EPSILON * 1e2) {
             None
         } else {
-            let ray_dist = ray.dir * l;
-            let normal = -(relative_center - ray_dist).normalize();
-            Some(Collision::new(ray_dist + ray.start, normal))
+            let normal = (relative_center - ray.dir * l) / self.0.radius;
+            Some(Collision::new(l, normal))
         }
     }
 }

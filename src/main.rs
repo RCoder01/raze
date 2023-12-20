@@ -1,17 +1,19 @@
 // #![allow(unused)]
 use std::{
     fs::{remove_file, File},
-    io::{self, BufWriter, Write},
+    io::{BufWriter, Write},
     time::Instant,
 };
 
 use crate::{
+    img::{Color, Image, PPMWriter},
     math::{Ray, Vec3},
     rand::Reflector,
     scene::{Camera, Display, Scene},
     shapes::{InvertedSphere, Shape, Sphere, TriangleMesh},
 };
 
+mod img;
 mod math;
 mod rand;
 mod scene;
@@ -23,7 +25,7 @@ fn main() {
     draw();
 }
 
-fn get_geometry() -> Vec<Box<dyn Shape>> {
+fn get_geometry() -> impl Shape {
     let vertices = vec![
         Vec3::new(1., 1., 1.),
         Vec3::new(1., 1., -1.),
@@ -59,10 +61,11 @@ fn get_geometry() -> Vec<Box<dyn Shape>> {
         vertices.into_iter().map(|v| v * 20.).collect(),
         triangles.into_iter().map(|[a, b, c]| [c, b, a]).collect(),
     ));
-    // let outer = Box::new(InvertedSphere::new(Vec3::ZERO, 15.));
+    let _outer = Box::new(InvertedSphere::new(Vec3::ZERO, 15.));
     let sphere = Box::new(Sphere::new(Vec3::new(0., 0., -0.8), 1.2));
     let sphere2 = Box::new(Sphere::new(Vec3::new(-0.8, 1.2, 0.), 0.3));
-    vec![cube, outer, sphere, sphere2]
+    let v: Vec<Box<dyn Shape>> = vec![cube, outer, sphere, sphere2];
+    v
 }
 
 fn draw() {
@@ -80,11 +83,7 @@ fn draw() {
         light_pos: Vec3::new(-5., 8., 10.),
         world: get_geometry(),
     };
-
-    let _ = remove_file("img.ppm");
-    let mut file = BufWriter::new(File::create("img.ppm").unwrap());
-    file.write_all(format!("P3\n{} {}\n255\n", display.x, display.y).as_bytes())
-        .unwrap();
+    let mut img = Image::zeros(display);
 
     let start_time = Instant::now();
     let mut rand = Reflector::new();
@@ -93,7 +92,7 @@ fn draw() {
         if i % 10000 == 0 {
             let total_pixels = display.x * display.y;
             print!(
-                "\r{}/{} ({:.1}%)",
+                "{}/{} ({:.1}%)\r",
                 i,
                 total_pixels,
                 i as f64 * 100. / total_pixels as f64
@@ -102,22 +101,21 @@ fn draw() {
         }
         let ray = scene.pixel_ray(x, y);
         let Some(collision) = scene.world.intersect_exclusive(ray.clone()) else {
-            write_percent_vec(&mut file, Vec3::splat(0.), 0., 1.).unwrap();
             continue;
         };
         let mut brightness = 0.;
-        let curr_dist = (ray.start - collision.position).magnitude();
+        let curr_dist = collision.distance;
         for _ in 0..SAMPLES {
-            let new_ray = Ray::new(collision.position, rand.random_diffuse(collision.normal));
+            let new_ray = Ray::new(collision.position(), rand.random_diffuse(collision.normal));
             brightness += if let Some(collision) = scene.world.intersect_exclusive(new_ray.clone())
             {
-                let bounce_has_los = scene.sees_light(collision.position);
-                scene.brightness(collision.outgoing_ray(new_ray.dir))
+                let bounce_has_los = scene.sees_light(collision.position());
+                scene.brightness(collision.reflection())
                     * bounce_has_los as i32 as f64
-                    * scene.sees_light(collision.position) as i32 as f64
+                    * scene.sees_light(collision.position()) as i32 as f64
                     * (curr_dist
-                        + (new_ray.start - collision.position).magnitude()
-                        + (collision.position - scene.light_pos).magnitude())
+                        + (new_ray.start - collision.position()).magnitude()
+                        + (collision.position() - scene.light_pos).magnitude())
                     .powi(-2)
                     * 700.
             } else {
@@ -125,41 +123,20 @@ fn draw() {
             };
         }
         brightness /= SAMPLES as f64;
-        // let brightness = scene.brightness(collision.outgoing_ray(ray.dir))
-        //     * scene.sees_light(collision.position) as i32 as f64
+        // let brightness = scene.brightness(collision.reflection())
+        //     * scene.sees_light(collision.position()) as i32 as f64
         //     * 100.;
-        write_percent_vec(&mut file, Vec3::splat(brightness), 0., 1.).unwrap();
+        let color = Color::gray(brightness);
+        let pixel = img.at_mut(img.width() - x as usize - 1, y as usize);
+        *pixel = color;
         // if has_line_of_sight {
         // } else {
         //     write_percent_vec(&mut file, Vec3::splat(1.), 0., 1.).unwrap();
         // }
-        // dbg!(collision.normal);
-        // write_percent_vec(&mut file, collision.normal, -1., 1.).unwrap(); // normals
-        // write_percent_vec(&mut file, Vec3::splat(((CAM_POS - collision.position).magnitude() - 15.) / 3.), 0., 1.).unwrap(); // distance?
-        if x == 0 {
-            file.write_all(b"\n").unwrap();
-        }
+        // *pixel = (collision.normal + Vec3::splat(1.) * 0.5).into();
     }
     dbg!(Instant::now().duration_since(start_time));
-}
-
-fn write_percent_vec(
-    file: &mut BufWriter<File>,
-    vec: Vec3,
-    min: f64,
-    max: f64,
-) -> Result<usize, io::Error> {
-    file.write(
-        format!(
-            "{} {} {} ",
-            to_percent_byte(vec.x, min, max),
-            to_percent_byte(vec.y, min, max),
-            to_percent_byte(vec.z, min, max),
-        )
-        .as_bytes(),
-    )
-}
-
-fn to_percent_byte(x: f64, min: f64, max: f64) -> u8 {
-    (((x.clamp(min, max) - min) / (max - min)) * 255.).floor() as u8
+    let _ = remove_file("img.ppm");
+    let mut file = BufWriter::new(File::create("img.ppm").unwrap());
+    write!(&mut file, "{}", PPMWriter::from(&img)).expect("Expected writing to succeed");
 }

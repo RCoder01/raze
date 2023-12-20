@@ -109,6 +109,10 @@ impl Vec3 {
         self - 2. * self.project_onto(normal)
     }
 
+    pub fn reflect(self, vec: Self) -> Self {
+        vec.reflect_across(self)
+    }
+
     pub fn l1_norm(self) -> f64 {
         self.x.abs() + self.y.abs() + self.z.abs()
     }
@@ -525,5 +529,9 @@ impl Ray {
 
     pub fn new_unit(start: Vec3, dir: Vec3) -> Self {
         Self::new(start, dir.normalize())
+    }
+
+    pub fn translate(&self, scale: f64) -> Vec3 {
+        self.start + self.dir * scale
     }
 }
