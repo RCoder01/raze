@@ -12,6 +12,16 @@ pub struct Display {
     pub y: u32,
 }
 
+impl Display {
+    pub fn new(x: u32, y: u32) -> Self {
+        Self { x, y }
+    }
+
+    pub fn size(&self) -> usize {
+        self.x as usize * self.y as usize
+    }
+}
+
 impl IntoIterator for Display {
     type Item = (u32, u32);
     type IntoIter = DisplayIter;
@@ -232,5 +242,24 @@ mod tests {
             assert_eq!(it.len(), it.clone().count());
             let _ = it.next();
         }
+    }
+
+    #[test]
+    fn test_take() {
+        let display = Display {x: 5, y: 5};
+        let mut it = display.into_iter();
+        let _ = it.nth(10);
+        assert_eq!(it.take(10).collect::<Vec<_>>(), vec![
+            (1, 2),
+            (2, 2),
+            (3, 2),
+            (4, 2),
+            (0, 3),
+            (1, 3),
+            (2, 3),
+            (3, 3),
+            (4, 3),
+            (0, 4),
+        ]);
     }
 }
