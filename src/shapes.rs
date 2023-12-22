@@ -1,4 +1,7 @@
-use std::{ops::{Deref, DerefMut}, cmp::Ordering};
+use std::{
+    cmp::Ordering,
+    ops::{Deref, DerefMut},
+};
 
 use crate::{
     math::{Mat3x3, Ray, Vec3},
@@ -67,11 +70,13 @@ pub trait Shape {
     fn ray_intersection(&self, ray: Ray, include_start: bool) -> Option<Collision>;
 
     fn intersect_inclusive(&self, ray: Ray) -> Option<RayCollision> {
-        self.ray_intersection(ray.clone(), true).map(|collision| RayCollision::new(ray, collision))
+        self.ray_intersection(ray.clone(), true)
+            .map(|collision| RayCollision::new(ray, collision))
     }
 
     fn intersect_exclusive(&self, ray: Ray) -> Option<RayCollision> {
-        self.ray_intersection(ray.clone(), false).map(|collision| RayCollision::new(ray, collision))
+        self.ray_intersection(ray.clone(), false)
+            .map(|collision| RayCollision::new(ray, collision))
     }
 }
 

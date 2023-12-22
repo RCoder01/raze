@@ -124,6 +124,12 @@ impl From<Vec3> for [f64; 3] {
     }
 }
 
+impl From<[f64; 3]> for Vec3 {
+    fn from(value: [f64; 3]) -> Self {
+        Self::new(value[0], value[1], value[2])
+    }
+}
+
 impl IntoIterator for Vec3 {
     type Item = f64;
 

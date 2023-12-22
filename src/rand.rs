@@ -40,9 +40,18 @@ impl Lcg {
         lcg
     }
 
-    pub fn pseudo_rand_u32(&mut self) -> u32 {
+    fn advance_state(&mut self) {
         // using LCG params as used in java
         self.state = (self.state * Wrapping(0x5DEECE66Du64) + Wrapping(11)) % Wrapping(2u64 << 48);
+    }
+
+    pub fn pseudo_rand_bool(&mut self) -> bool {
+        self.advance_state();
+        self.state.0 >> 16 & 0b1 == 0
+    }
+
+    pub fn pseudo_rand_u32(&mut self) -> u32 {
+        self.advance_state();
         (self.state.0 >> 16) as u32
     }
 
@@ -61,7 +70,7 @@ impl Lcg {
 
 #[derive(Debug, Clone)]
 pub struct Reflector {
-    random: Lcg,
+    pub random: Lcg,
 }
 
 impl Reflector {
@@ -71,23 +80,20 @@ impl Reflector {
         }
     }
 
-    fn random_unit_y(&mut self) -> Vec3 {
+    fn random_unit(&mut self) -> Vec3 {
         let dir = self.random.pseudo_rand_f64() * std::f64::consts::TAU;
-        let height = self.random.pseudo_rand_f64();
+        let height = self.random.pseudo_rand_f64() * 2. - 1.;
         let (sin, cos) = dir.sin_cos();
         let xz = Vec3::new(cos, 0., sin);
         (1. - height.powi(2)).sqrt() * xz + height * Vec3::Y
     }
 
     pub fn random_diffuse(&mut self, normal: Vec3) -> Vec3 {
-        let orthogonal_1 = if normal.x.abs() + EPSILON >= 1. {
-            Vec3::Y
+        let unit = self.random_unit();
+        if unit.dot(normal).is_sign_negative() {
+            -unit
         } else {
-            Vec3::X
+            unit
         }
-        .cross(normal);
-        let orthogonal_2 = normal.cross(orthogonal_1);
-        // dbg!(normal, orthogonal_1, orthogonal_2);
-        &Mat3x3::from_col_vectors(orthogonal_1, normal, orthogonal_2) * self.random_unit_y()
     }
 }

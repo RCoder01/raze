@@ -1,5 +1,7 @@
 use crate::{
+    img::Color,
     math::{Ray, Vec3},
+    rand::Reflector,
     shapes::Shape,
     EPSILON,
 };
@@ -38,6 +40,19 @@ impl DisplayIter {
             y_end: display.y - 1,
         }
     }
+
+    pub fn len(&self) -> usize {
+        if self.y_start == self.y_end && self.x_start > self.x_end {
+            return 0;
+        }
+        if self.y_start == self.y_end {
+            return (self.x_end - self.x_start + 1) as usize;
+        }
+        let start = self.display.x - self.x_start;
+        let height = self.y_end - self.y_start - 1;
+        let end = self.x_end + 1;
+        return (start + height * self.display.x + end) as usize;
+    }
 }
 
 impl Iterator for DisplayIter {
@@ -56,6 +71,10 @@ impl Iterator for DisplayIter {
         }
         self.x_start += 1;
         Some((self.x_start - 1, self.y_start))
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.len(), Some(self.len()))
     }
 }
 
@@ -144,9 +163,9 @@ impl<S: Shape> Scene<S> {
         ray.dir.dot(to_light_ray_dist).max(0.)
     }
 
-    pub fn pixel_ray(&self, x: u32, y: u32) -> Ray {
-        let x_percent = x as f64 / self.display.x as f64 - 0.5;
-        let y_percent = y as f64 / self.display.y as f64 - 0.5;
+    pub fn pixel_ray(&self, x: f64, y: f64) -> Ray {
+        let x_percent = x / self.display.x as f64 - 0.5;
+        let y_percent = y / self.display.y as f64 - 0.5;
         let dir = (self.camera.forward
             + x_percent * self.camera.max_left_deflection()
             + y_percent * self.camera.max_up_deflection())
@@ -161,8 +180,57 @@ impl<S: Shape> Scene<S> {
             .world
             .intersect_inclusive(to_light_ray)
             .is_some_and(|collision| {
-                collision.distance.powi(2) - light_relative.squared_magnitude()
-                    < EPSILON
+                collision.distance.powi(2) - light_relative.squared_magnitude() < EPSILON
             })
+    }
+
+    pub fn cast_ray(&self, rand: &mut Reflector, ray: Ray, bounces: u16) -> Color {
+        let Some(collision) = self.world.intersect_exclusive(ray.clone()) else {
+            return Color::BLACK;
+        };
+        if bounces >= 1 {
+            let new_ray = Ray::new(collision.position(), rand.random_diffuse(collision.normal));
+            let bounce_color = self.cast_ray(rand, new_ray, bounces - 1);
+            return bounce_color;
+        }
+        Color::gray(
+            self.brightness(collision.reflection())
+                * self.sees_light(collision.position()) as i32 as f64
+                * (collision.position() - self.light_pos).magnitude().powi(-2),
+        )
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::Display;
+
+    #[test]
+    fn test_iter_len_head_and_tail() {
+        let display = Display {x: 12, y: 7};
+        let mut it = display.into_iter();
+        for _ in 0..50 {
+            if it.len() != it.clone().count() {
+                dbg!(it);
+                assert_eq!(it.len(), it.clone().count());
+            }
+            let _ = it.next();
+            if it.len() != it.clone().count() {
+                dbg!(it);
+                assert_eq!(it.len(), it.clone().count());
+            }
+            let _ = it.next_back();
+        }
+    }
+
+    #[test]
+    fn test_iter_len_head() {
+        let display = Display {x: 12, y: 7};
+        let mut it = display.into_iter();
+        for _ in 0..100 {
+            assert_eq!(it.len(), it.clone().count());
+            let _ = it.next();
+        }
     }
 }

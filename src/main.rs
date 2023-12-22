@@ -1,13 +1,13 @@
-// #![allow(unused)]
+#![allow(dead_code)]
 use std::{
     fs::{remove_file, File},
     io::{BufWriter, Write},
-    time::Instant,
+    time::Instant, sync::atomic::AtomicBool,
 };
 
 use crate::{
-    img::{Color, Image, PPMWriter},
-    math::{Ray, Vec3},
+    img::{Image, PPMWriter},
+    math::Vec3,
     rand::Reflector,
     scene::{Camera, Display, Scene},
     shapes::{InvertedSphere, Shape, Sphere, TriangleMesh},
@@ -69,7 +69,7 @@ fn get_geometry() -> impl Shape {
 }
 
 fn draw() {
-    let display = Display { x: 1280, y: 720 };
+    let display = Display { x: 12, y: 7 };
     let cam_pos = Vec3::new(-7., 10., -10.);
     let scene = Scene {
         display,
@@ -99,41 +99,21 @@ fn draw() {
             );
             let _ = std::io::stdout().flush();
         }
-        let ray = scene.pixel_ray(x, y);
-        let Some(collision) = scene.world.intersect_exclusive(ray.clone()) else {
-            continue;
-        };
-        let mut brightness = 0.;
-        let curr_dist = collision.distance;
-        for _ in 0..SAMPLES {
-            let new_ray = Ray::new(collision.position(), rand.random_diffuse(collision.normal));
-            brightness += if let Some(collision) = scene.world.intersect_exclusive(new_ray.clone())
-            {
-                let bounce_has_los = scene.sees_light(collision.position());
-                scene.brightness(collision.reflection())
-                    * bounce_has_los as i32 as f64
-                    * scene.sees_light(collision.position()) as i32 as f64
-                    * (curr_dist
-                        + (new_ray.start - collision.position()).magnitude()
-                        + (collision.position() - scene.light_pos).magnitude())
-                    .powi(-2)
-                    * 700.
-            } else {
-                0.
-            };
-        }
-        brightness /= SAMPLES as f64;
-        // let brightness = scene.brightness(collision.reflection())
-        //     * scene.sees_light(collision.position()) as i32 as f64
-        //     * 100.;
-        let color = Color::gray(brightness);
+        let x_offset = rand.random.pseudo_rand_f64();
+        let y_offset = rand.random.pseudo_rand_f64();
+        let ray = scene.pixel_ray(x as f64 + x_offset, y as f64 + y_offset);
+        let color = (0..SAMPLES)
+            .map(|_| scene.cast_ray(&mut rand, ray.clone(), 2))
+            .fold(Vec3::default(), |s, v| s + v.0);
         let pixel = img.at_mut(img.width() - x as usize - 1, y as usize);
-        *pixel = color;
-        // if has_line_of_sight {
-        // } else {
-        //     write_percent_vec(&mut file, Vec3::splat(1.), 0., 1.).unwrap();
-        // }
-        // *pixel = (collision.normal + Vec3::splat(1.) * 0.5).into();
+        *pixel = (color / SAMPLES as f64).into();
+    }
+    let brightest = img.data().into_iter().fold((0., 0., 0.), |c1, c2| {
+        (c2.r().max(c1.0), c2.g().max(c1.1), c2.b().max(c1.2))
+    });
+    let brightest = brightest.0.max(brightest.1).max(brightest.2);
+    for color in img.data_mut() {
+        *color = (color.0 / brightest).into()
     }
     dbg!(Instant::now().duration_since(start_time));
     let _ = remove_file("img.ppm");

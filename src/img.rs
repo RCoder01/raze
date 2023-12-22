@@ -1,37 +1,55 @@
 use std::fmt::Formatter;
 
-use crate::{scene::Display, math::Vec3};
+use crate::{math::Vec3, scene::Display};
 
 #[derive(Debug, Clone, Copy, Default)]
-pub struct Color(pub f64, pub f64, pub f64);
+pub struct Color(pub Vec3);
 
 impl Color {
-    pub const BLACK: Color = Color(0., 0., 0.);
-    pub const WHITE: Color = Color(1., 1., 1.);
-    pub const RED: Color = Color(1., 0., 0.);
-    pub const GREEN: Color = Color(0., 1., 0.);
-    pub const BLUE: Color = Color(0., 0., 1.);
+    pub const BLACK: Color = Color::from_rgb(0., 0., 0.);
+    pub const WHITE: Color = Color::from_rgb(1., 1., 1.);
+    pub const RED: Color = Color::from_rgb(1., 0., 0.);
+    pub const GREEN: Color = Color::from_rgb(0., 1., 0.);
+    pub const BLUE: Color = Color::from_rgb(0., 0., 1.);
 
-    pub const fn rgb(r: f64, g: f64, b: f64) -> Self {
-        Self(r, g, b)
+    pub const fn from_rgb(r: f64, g: f64, b: f64) -> Self {
+        Self(Vec3::new(r, g, b))
     }
 
     pub const fn gray(brightness: f64) -> Self {
-        Self(brightness, brightness, brightness)
+        Self::from_rgb(brightness, brightness, brightness)
+    }
+
+    pub const fn r(self) -> f64 {
+        self.0.x
+    }
+
+    pub const fn g(self) -> f64 {
+        self.0.y
+    }
+
+    pub const fn b(self) -> f64 {
+        self.0.z
     }
 
     pub fn to_rgb_bytes(self) -> [u8; 3] {
         [
-            to_percent_byte(self.0),
-            to_percent_byte(self.1),
-            to_percent_byte(self.2),
+            to_percent_byte(self.r()),
+            to_percent_byte(self.g()),
+            to_percent_byte(self.b()),
         ]
     }
 }
 
 impl From<Vec3> for Color {
     fn from(value: Vec3) -> Self {
-        Self(value.x, value.y, value.z)
+        Self(value)
+    }
+}
+
+impl From<Color> for Vec3 {
+    fn from(value: Color) -> Self {
+        value.0
     }
 }
 
