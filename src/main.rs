@@ -2,11 +2,16 @@
 use std::{
     fs::{remove_file, File},
     io::{BufWriter, Write},
-    time::{Instant, Duration}, sync::{atomic::{AtomicBool, AtomicUsize, Ordering}, Arc, Mutex}, thread::{self, yield_now},
+    sync::{
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+        Arc,
+    },
+    thread,
+    time::{Duration, Instant},
 };
 
 use crate::{
-    img::{Image, PPMWriter, Color},
+    img::{Color, Image, PPMWriter},
     math::Vec3,
     rand::Reflector,
     scene::{Camera, Display, Scene},
@@ -84,18 +89,19 @@ fn draw() {
         world: get_geometry(),
     });
     let start_time = Instant::now();
-    const SAMPLES: usize = 200;
-    const NUM_THREADS: usize = 16;
+    const SAMPLES: usize = 10000;
+    const BOUNCES: u16 = 2;
+    const THREADS: usize = 16;
     let len = display.size();
     let mut it = display.into_iter();
-    let per_thread = (len + 1) / NUM_THREADS;
+    let per_thread = (len + 1) / THREADS + 1;
     let progress_changed = Arc::new(AtomicBool::new(true));
     let progress = Arc::new(AtomicUsize::new(0));
-    let mut handles = Vec::with_capacity(NUM_THREADS);
+    let mut handles = Vec::with_capacity(THREADS);
     let mut main_img = Image::zeros(display);
-    for _i in 0..NUM_THREADS {
-        let thread_it = it.clone().take(per_thread);
-        let _ = it.nth(per_thread);
+    for _ in 0..THREADS {
+        let thread_it = it.take(per_thread);
+        it.nth(per_thread - 1);
         let progress = Arc::clone(&progress);
         let progress_changed = Arc::clone(&progress_changed);
         let scene = Arc::clone(&scene);
@@ -103,15 +109,17 @@ fn draw() {
             let mut rand = Reflector::new();
             let mut img = Image::zeros(display);
             for (i, (x, y)) in thread_it.enumerate() {
-                if i > 0 && i % 10000 == 0 {
-                    progress.fetch_add(10000, Ordering::Release);
+                if i > 0 && i % (100000 / SAMPLES) == 0 {
+                    progress.fetch_add(100000 / SAMPLES, Ordering::Release);
                     progress_changed.store(true, Ordering::Release);
                 }
-                let x_offset = rand.random.pseudo_rand_f64();
-                let y_offset = rand.random.pseudo_rand_f64();
-                let ray = scene.pixel_ray(x as f64 + x_offset, y as f64 + y_offset);
                 let color = (0..SAMPLES)
-                    .map(|_| scene.cast_ray(&mut rand, ray.clone(), 2))
+                .map(|_| {
+                        let x_offset = rand.random.pseudo_rand_f64();
+                        let y_offset = rand.random.pseudo_rand_f64();
+                        let ray = scene.pixel_ray(x as f64 + x_offset, y as f64 + y_offset);
+                        scene.cast_ray(&mut rand, ray.clone(), BOUNCES)
+                    })
                     .fold(Vec3::default(), |s, v| s + v.0);
                 let pixel = img.at_mut(img.width() - x as usize - 1, y as usize);
                 *pixel = (color / SAMPLES as f64).into();
@@ -125,7 +133,12 @@ fn draw() {
             if progress_changed.load(Ordering::Acquire) {
                 progress_changed.store(false, Ordering::Release);
                 let progress = progress.load(Ordering::Acquire);
-                print!("Progress: {}/{} ({:.2}%)\r", progress, len, progress as f64 / len as f64 * 100.);
+                print!(
+                    "Progress: {}/{} ({:.2}%)\r",
+                    progress * SAMPLES,
+                    len * SAMPLES,
+                    progress as f64 / len as f64 * 100.
+                );
                 let _ = std::io::stdout().flush();
                 thread::sleep(Duration::from_millis(100));
             }
@@ -138,7 +151,7 @@ fn draw() {
         }
     }
     // let mut img = main_img.into_inner().expect("All threads should have finished");
-    let brightest = main_img.data().into_iter().fold((0., 0., 0.), |c1, c2| {
+    let brightest = main_img.data().iter().fold((0., 0., 0.), |c1, c2| {
         (c2.r().max(c1.0), c2.g().max(c1.1), c2.b().max(c1.2))
     });
     let brightest = brightest.0.max(brightest.1).max(brightest.2);

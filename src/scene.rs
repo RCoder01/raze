@@ -61,7 +61,7 @@ impl DisplayIter {
         let start = self.display.x - self.x_start;
         let height = self.y_end - self.y_start - 1;
         let end = self.x_end + 1;
-        return (start + height * self.display.x + end) as usize;
+        (start + height * self.display.x + end) as usize
     }
 }
 
@@ -211,14 +211,13 @@ impl<S: Shape> Scene<S> {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::Display;
 
     #[test]
     fn test_iter_len_head_and_tail() {
-        let display = Display {x: 12, y: 7};
+        let display = Display { x: 12, y: 7 };
         let mut it = display.into_iter();
         for _ in 0..50 {
             if it.len() != it.clone().count() {
@@ -236,7 +235,7 @@ mod tests {
 
     #[test]
     fn test_iter_len_head() {
-        let display = Display {x: 12, y: 7};
+        let display = Display { x: 12, y: 7 };
         let mut it = display.into_iter();
         for _ in 0..100 {
             assert_eq!(it.len(), it.clone().count());
@@ -246,20 +245,23 @@ mod tests {
 
     #[test]
     fn test_take() {
-        let display = Display {x: 5, y: 5};
+        let display = Display { x: 5, y: 5 };
         let mut it = display.into_iter();
         let _ = it.nth(10);
-        assert_eq!(it.take(10).collect::<Vec<_>>(), vec![
-            (1, 2),
-            (2, 2),
-            (3, 2),
-            (4, 2),
-            (0, 3),
-            (1, 3),
-            (2, 3),
-            (3, 3),
-            (4, 3),
-            (0, 4),
-        ]);
+        assert_eq!(
+            it.take(10).collect::<Vec<_>>(),
+            vec![
+                (1, 2),
+                (2, 2),
+                (3, 2),
+                (4, 2),
+                (0, 3),
+                (1, 3),
+                (2, 3),
+                (3, 3),
+                (4, 3),
+                (0, 4),
+            ]
+        );
     }
 }

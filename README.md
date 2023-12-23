@@ -7,8 +7,8 @@ Fully custom CPU raytracer
 Future objectives:
 - [x] Shadows
 - [ ] Colors
-- [ ] Multi-bounce rays
-- [ ] Multi-sampling for each pixel
+- [x] Multi-bounce rays
+- [x] Multi-sampling for each pixel
 - [ ] Multiple light sources
 - [ ] Better image format
 - [ ] Specular and diffuse reflections
@@ -31,7 +31,7 @@ Future objectives:
   - [ ] Variable refractive indexes
   - [ ] Solid materials
 - [ ] Improved performance
-  - [ ] Parallelization
+  - [x] Parallelization
   - [ ] More Vectorization?
   - [ ] Compute on the GPU?
 - [ ] Nonlinear light (ie. graviational effects)?
