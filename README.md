@@ -6,7 +6,7 @@ Fully custom CPU raytracer
 
 Future objectives:
 - [x] Shadows
-- [ ] Colors
+- [x] Colors
 - [x] Multi-bounce rays
 - [x] Multi-sampling for each pixel
 - [ ] Multiple light sources

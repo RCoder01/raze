@@ -4,6 +4,7 @@ use std::{
 };
 
 use crate::{
+    img::Color,
     math::{Mat3x3, Ray, Vec3},
     EPSILON,
 };
@@ -49,6 +50,7 @@ impl DerefMut for RayCollision {
 pub struct Collision {
     pub distance: f64,
     pub normal: Vec3,
+    pub color: Color,
     // color, scattering, ...
 }
 
@@ -59,8 +61,12 @@ impl PartialOrd for Collision {
 }
 
 impl Collision {
-    pub fn new(distance: f64, normal: Vec3) -> Self {
-        Self { distance, normal }
+    pub fn new(distance: f64, normal: Vec3, color: Color) -> Self {
+        Self {
+            distance,
+            normal,
+            color,
+        }
     }
 }
 
@@ -108,16 +114,26 @@ where
 pub struct TriangleMesh {
     pub vertices: Vec<Vec3>,
     pub triangles: Vec<[u16; 3]>,
+    pub tri_colors: Vec<u16>,
     pub triangle_projections: Vec<Mat3x3>,
     pub normals: Vec<Vec3>,
+    pub colors: Vec<Color>,
 }
 
+pub type VertexIndex = u16;
+pub type ColorIndex = u16;
+
 impl TriangleMesh {
-    pub fn new(vertices: Vec<Vec3>, triangles: Vec<[u16; 3]>) -> Self {
+    pub fn new(
+        vertices: Vec<Vec3>,
+        colors: Vec<Color>,
+        triangles: Vec<([VertexIndex; 3], ColorIndex)>,
+    ) -> Self {
+        let tri_colors = triangles.iter().map(|(_, c)| *c).collect();
         let normals: Vec<_> = triangles
             .iter()
             .copied()
-            .map(|[a, b, c]| {
+            .map(|([a, b, c], _)| {
                 (vertices[b as usize] - vertices[a as usize])
                     .cross(vertices[c as usize] - vertices[b as usize])
                     .normalize()
@@ -127,7 +143,7 @@ impl TriangleMesh {
             .iter()
             .copied()
             .zip(normals.iter().cloned())
-            .map(|([a, b, c], normal)| {
+            .map(|(([a, b, c], _), normal)| {
                 let v100 = vertices[b as usize] - vertices[a as usize];
                 let v010 = vertices[c as usize] - vertices[a as usize];
                 let v001 = vertices[a as usize].project_onto(normal);
@@ -135,11 +151,17 @@ impl TriangleMesh {
                 fwd_change_of_basis.inverse().unwrap()
             })
             .collect();
+        let triangles = triangles
+            .into_iter()
+            .map(|([a, b, c], _)| [a, b, c])
+            .collect();
         Self {
             vertices,
             triangles,
+            tri_colors,
             triangle_projections,
             normals,
+            colors,
         }
     }
 
@@ -187,7 +209,13 @@ impl Shape for TriangleMesh {
                 Some((i, ray_scale))
             })
             .min_by(|(_, d1), (_, d2)| d1.total_cmp(d2));
-        nearest_collision.map(|(i, intersect)| Collision::new(intersect, self.normals[i]))
+        nearest_collision.map(|(i, intersect)| {
+            Collision::new(
+                intersect,
+                self.normals[i],
+                self.colors[self.tri_colors[i] as usize],
+            )
+        })
     }
 }
 
@@ -195,22 +223,32 @@ impl Shape for TriangleMesh {
 pub struct Sphere {
     pub center: Vec3,
     pub radius: f64,
+    pub color: Color,
 }
 
 impl Sphere {
-    pub fn new(center: Vec3, radius: f64) -> Self {
-        Self { center, radius }
+    pub const fn new(center: Vec3, radius: f64, color: Color) -> Self {
+        Self {
+            center,
+            radius,
+            color,
+        }
     }
-}
 
-impl Shape for Sphere {
-    fn ray_intersection(&self, ray: Ray, include_start: bool) -> Option<Collision> {
+    fn intersect_equation(&self, ray: Ray) -> (Vec3, f64, f64) {
         let relative_center = self.center - ray.start;
         let cx = relative_center.dot(ray.dir);
         let cc = relative_center.dot(relative_center);
         let xx = ray.dir.dot(ray.dir);
         let rr = self.radius * self.radius;
         let root = cx * cx - xx * (cc - rr);
+        (relative_center, cx, root)
+    }
+}
+
+impl Shape for Sphere {
+    fn ray_intersection(&self, ray: Ray, include_start: bool) -> Option<Collision> {
+        let (relative_center, cx, root) = self.intersect_equation(ray.clone());
         if root.is_sign_negative() {
             return None;
         }
@@ -219,7 +257,7 @@ impl Shape for Sphere {
             return None;
         }
         let normal = (ray.dir * l - relative_center) / self.radius;
-        Some(Collision::new(l, normal))
+        Some(Collision::new(l, normal, self.color))
     }
 }
 
@@ -227,8 +265,8 @@ impl Shape for Sphere {
 pub struct InvertedSphere(Sphere);
 
 impl InvertedSphere {
-    pub fn new(center: Vec3, radius: f64) -> Self {
-        Self(Sphere::new(center, radius))
+    pub fn new(center: Vec3, radius: f64, color: Color) -> Self {
+        Self(Sphere::new(center, radius, color))
     }
 }
 
@@ -246,17 +284,15 @@ impl From<InvertedSphere> for Sphere {
 
 impl Shape for InvertedSphere {
     fn ray_intersection(&self, ray: Ray, include_start: bool) -> Option<Collision> {
-        let relative_center = self.0.center - ray.start;
-        let cx = relative_center.dot(ray.dir);
-        let cc = relative_center.dot(relative_center);
-        let xx = ray.dir.dot(ray.dir);
-        let rr = self.0.radius * self.0.radius;
-        let l = cx + (cx * cx - xx * (cc - rr)).sqrt();
-        if l.is_nan() || l < -EPSILON * 1e2 || (!include_start && l < EPSILON * 1e2) {
-            None
-        } else {
-            let normal = (relative_center - ray.dir * l) / self.0.radius;
-            Some(Collision::new(l, normal))
+        let (relative_center, cx, root) = self.0.intersect_equation(ray.clone());
+        if root.is_sign_negative() {
+            return None;
         }
+        let l = cx + root.sqrt();
+        if !include_start && l < EPSILON {
+            return None;
+        }
+        let normal = -(ray.dir * l - relative_center) / self.0.radius;
+        Some(Collision::new(l, normal, self.0.color))
     }
 }

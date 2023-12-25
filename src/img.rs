@@ -2,7 +2,7 @@ use std::fmt::Formatter;
 
 use crate::{math::Vec3, scene::Display};
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct Color(pub Vec3);
 
 impl Color {
@@ -38,6 +38,14 @@ impl Color {
             to_percent_byte(self.g()),
             to_percent_byte(self.b()),
         ]
+    }
+
+    pub fn reflect_on(self, surface: Color) -> Color {
+        Color(Vec3::new(
+            self.0.x * surface.0.x,
+            self.0.y * surface.0.y,
+            self.0.z * surface.0.z,
+        ))
     }
 }
 

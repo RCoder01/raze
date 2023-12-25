@@ -147,13 +147,13 @@ impl Camera {
 
     pub fn max_left_deflection(&self) -> Vec3 {
         let (facing_left_x, facing_left_z) = self.xfov.to_radians().sin_cos();
-        let max_deflection = facing_left_z.recip() * facing_left_x;
+        let max_deflection = facing_left_x / facing_left_z;
         max_deflection * self.left()
     }
 
     pub fn max_up_deflection(&self) -> Vec3 {
         let (facing_top_y, facing_top_z) = self.yfov.to_radians().sin_cos();
-        let up_deflection = facing_top_z.recip() * facing_top_y;
+        let up_deflection = facing_top_y / facing_top_z;
         up_deflection * self.up
     }
 }
@@ -164,6 +164,7 @@ pub struct Scene<S: Shape> {
     pub camera: Camera,
     pub light_pos: Vec3,
     pub world: S,
+    pub background_color: Color,
 }
 
 impl<S: Shape> Scene<S> {
@@ -177,7 +178,7 @@ impl<S: Shape> Scene<S> {
         let x_percent = x / self.display.x as f64 - 0.5;
         let y_percent = y / self.display.y as f64 - 0.5;
         let dir = (self.camera.forward
-            + x_percent * self.camera.max_left_deflection()
+            + x_percent * -self.camera.max_left_deflection()
             + y_percent * self.camera.max_up_deflection())
         .normalize();
         Ray::new(self.camera.pos, dir)
@@ -196,18 +197,28 @@ impl<S: Shape> Scene<S> {
 
     pub fn cast_ray(&self, rand: &mut Reflector, ray: Ray, bounces: u16) -> Color {
         let Some(collision) = self.world.intersect_exclusive(ray.clone()) else {
-            return Color::BLACK;
+            return self.background_color;
         };
         if bounces >= 1 {
             let new_ray = Ray::new(collision.position(), rand.random_diffuse(collision.normal));
-            let bounce_color = self.cast_ray(rand, new_ray, bounces - 1);
-            return bounce_color;
+            let light_color = self.cast_ray(rand, new_ray, bounces - 1);
+            return light_color.reflect_on(collision.color);
         }
-        Color::gray(
-            self.brightness(collision.reflection())
-                * self.sees_light(collision.position()) as i32 as f64
-                * (collision.position() - self.light_pos).magnitude().powi(-2),
-        )
+        let brightness = self.brightness(collision.reflection())
+            * self.sees_light(collision.position()) as i32 as f64
+            * (collision.position() - self.light_pos).magnitude().powi(-2);
+        Color::gray(brightness).reflect_on(collision.color)
+    }
+
+    pub fn num_bounces(&self, rand: &mut Reflector, ray: Ray, max_bounces: u16) -> u16 {
+        let Some(collision) = self.world.intersect_exclusive(ray.clone()) else {
+            return 0;
+        };
+        if max_bounces >= 1 {
+            let new_ray = Ray::new(collision.position(), rand.random_diffuse(collision.normal));
+            return self.num_bounces(rand, new_ray, max_bounces - 1) + 1;
+        }
+        1
     }
 }
 
