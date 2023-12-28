@@ -5,82 +5,76 @@ use std::{
 
 use crate::{
     img::Color,
+    material::{DiffuseColorMaterial, Material},
     math::{Mat3x3, Ray, Vec3},
     EPSILON,
 };
 
 #[derive(Debug, Clone)]
-pub struct RayCollision {
+pub struct RayCollision<M: Material> {
     pub ray: Ray,
-    pub collision: Collision,
+    pub collision: Collision<M>,
 }
 
-impl RayCollision {
-    pub fn new(ray: Ray, collision: Collision) -> Self {
+impl<M: Material> RayCollision<M> {
+    pub fn new(ray: Ray, collision: Collision<M>) -> Self {
         Self { ray, collision }
     }
 
-    pub fn position(&self) -> Vec3 {
-        self.ray.translate(self.collision.distance)
+    pub fn collision_point(&self) -> Vec3 {
+        self.ray.point_at(self.collision.distance)
     }
 
     pub fn reflection(&self) -> Ray {
-        Ray::new(
-            self.position(),
-            self.ray.dir.reflect_across(self.collision.normal),
-        )
+        self.material
+            .update_ray(self.ray.translate(self.collision.distance))
     }
 }
 
-impl Deref for RayCollision {
-    type Target = Collision;
+impl<M: Material> Deref for RayCollision<M> {
+    type Target = Collision<M>;
 
     fn deref(&self) -> &Self::Target {
         &self.collision
     }
 }
 
-impl DerefMut for RayCollision {
+impl<M: Material> DerefMut for RayCollision<M> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.collision
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
-pub struct Collision {
+#[derive(Debug, Clone)]
+pub struct Collision<M: Material> {
     pub distance: f64,
-    pub normal: Vec3,
-    pub color: Color,
-    // color, scattering, ...
+    pub material: M,
 }
 
-impl PartialOrd for Collision {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        self.distance.partial_cmp(&other.distance)
+impl<M: Material> Collision<M> {
+    pub fn new(distance: f64, material: M) -> Self {
+        Self { distance, material }
+    }
+
+    pub fn cmp<M2: Material>(&self, other: &Collision<M2>) -> Ordering {
+        self.distance.total_cmp(&other.distance)
     }
 }
 
-impl Collision {
-    pub fn new(distance: f64, normal: Vec3, color: Color) -> Self {
-        Self {
-            distance,
-            normal,
-            color,
-        }
-    }
-}
+impl<M: Material + Copy> Copy for Collision<M> {}
 
 pub trait Shape {
+    type Material: Material;
     // when ray_start is on some surface, only if include_start
     // and the ray is facing into the surface, it should return a collision
-    fn ray_intersection(&self, ray: Ray, include_start: bool) -> Option<Collision>;
+    fn ray_intersection(&self, ray: Ray, include_start: bool) -> Option<Collision<Self::Material>>;
 
-    fn intersect_inclusive(&self, ray: Ray) -> Option<RayCollision> {
+    fn intersect_inclusive(&self, ray: Ray) -> Option<RayCollision<Self::Material>> {
         self.ray_intersection(ray.clone(), true)
             .map(|collision| RayCollision::new(ray, collision))
     }
 
-    fn intersect_exclusive(&self, ray: Ray) -> Option<RayCollision> {
+    fn intersect_exclusive(&self, ray: Ray) -> Option<RayCollision<Self::Material>> {
         self.ray_intersection(ray.clone(), false)
             .map(|collision| RayCollision::new(ray, collision))
     }
@@ -91,7 +85,9 @@ where
     T: Deref,
     T::Target: Shape,
 {
-    fn ray_intersection(&self, ray: Ray, include_start: bool) -> Option<Collision> {
+    type Material = <T::Target as Shape>::Material;
+
+    fn ray_intersection(&self, ray: Ray, include_start: bool) -> Option<Collision<Self::Material>> {
         (**self).ray_intersection(ray, include_start)
     }
 }
@@ -100,13 +96,12 @@ impl<T> Shape for [T]
 where
     T: Shape,
 {
-    fn ray_intersection(&self, ray: Ray, include_start: bool) -> Option<Collision> {
+    type Material = T::Material;
+
+    fn ray_intersection(&self, ray: Ray, include_start: bool) -> Option<Collision<Self::Material>> {
         self.iter()
             .filter_map(|shape| shape.ray_intersection(ray.clone(), include_start))
-            .min_by(|c1, c2| {
-                c1.partial_cmp(c2)
-                    .expect("Collision distance should not be NaN")
-            })
+            .min_by(|c1, c2| c1.cmp(c2))
     }
 }
 
@@ -171,7 +166,13 @@ impl TriangleMesh {
 }
 
 impl Shape for TriangleMesh {
-    fn ray_intersection(&self, ray: Ray, include_start: bool) -> Option<Collision> {
+    type Material = DiffuseColorMaterial;
+
+    fn ray_intersection(
+        &self,
+        ray: Ray,
+        include_start: bool,
+    ) -> Option<Collision<DiffuseColorMaterial>> {
         let nearest_collision = self
             .triangles
             .iter()
@@ -212,8 +213,10 @@ impl Shape for TriangleMesh {
         nearest_collision.map(|(i, intersect)| {
             Collision::new(
                 intersect,
-                self.normals[i],
-                self.colors[self.tri_colors[i] as usize],
+                DiffuseColorMaterial::new(
+                    self.normals[i],
+                    self.colors[self.tri_colors[i] as usize],
+                ),
             )
         })
     }
@@ -247,7 +250,9 @@ impl Sphere {
 }
 
 impl Shape for Sphere {
-    fn ray_intersection(&self, ray: Ray, include_start: bool) -> Option<Collision> {
+    type Material = DiffuseColorMaterial;
+
+    fn ray_intersection(&self, ray: Ray, include_start: bool) -> Option<Collision<Self::Material>> {
         let (relative_center, cx, root) = self.intersect_equation(ray.clone());
         if root.is_sign_negative() {
             return None;
@@ -257,7 +262,10 @@ impl Shape for Sphere {
             return None;
         }
         let normal = (ray.dir * l - relative_center) / self.radius;
-        Some(Collision::new(l, normal, self.color))
+        Some(Collision::new(
+            l,
+            DiffuseColorMaterial::new(normal, self.color),
+        ))
     }
 }
 
@@ -283,7 +291,9 @@ impl From<InvertedSphere> for Sphere {
 }
 
 impl Shape for InvertedSphere {
-    fn ray_intersection(&self, ray: Ray, include_start: bool) -> Option<Collision> {
+    type Material = DiffuseColorMaterial;
+
+    fn ray_intersection(&self, ray: Ray, include_start: bool) -> Option<Collision<Self::Material>> {
         let (relative_center, cx, root) = self.0.intersect_equation(ray.clone());
         if root.is_sign_negative() {
             return None;
@@ -293,6 +303,9 @@ impl Shape for InvertedSphere {
             return None;
         }
         let normal = -(ray.dir * l - relative_center) / self.0.radius;
-        Some(Collision::new(l, normal, self.0.color))
+        Some(Collision::new(
+            l,
+            DiffuseColorMaterial::new(normal, self.0.color),
+        ))
     }
 }

@@ -1,5 +1,6 @@
 #![allow(unused)]
 use std::{
+    cell::RefCell,
     num::Wrapping,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -14,6 +15,17 @@ pub fn sysnanos() -> u32 {
         .duration_since(UNIX_EPOCH)
         .expect("Current system time is before unix time")
         .subsec_nanos()
+}
+
+pub trait RandSource {
+    fn next(&mut self) -> u32;
+
+    fn rand<R: Rand>(&mut self) -> R
+    where
+        Self: Sized,
+    {
+        R::get(self)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -34,9 +46,9 @@ impl Lcg {
         let mut lcg = Self {
             state: Wrapping(seed),
         };
-        lcg.pseudo_rand_u32();
-        lcg.pseudo_rand_u32();
-        lcg.pseudo_rand_u32();
+        lcg.next();
+        lcg.next();
+        lcg.next();
         lcg
     }
 
@@ -45,44 +57,35 @@ impl Lcg {
         self.state = (self.state * Wrapping(0x5DEECE66Du64) + Wrapping(11)) % Wrapping(2u64 << 48);
     }
 
-    pub fn pseudo_rand_bool(&mut self) -> bool {
-        self.advance_state();
-        self.state.0 >> 16 & 0b1 == 0
-    }
+    // pub fn pseudo_rand_f32(&mut self) -> f32 {
+    //     (self.pseudo_rand_u32() % (2 << 23)) as f32 / (2 << 23) as f32
+    // }
 
-    pub fn pseudo_rand_u32(&mut self) -> u32 {
+    // pub fn pseudo_rand_f64(&mut self) -> f64 {
+    //     (self.pseudo_rand_u64() % (2u64 << 52)) as f64 / (2u64 << 52) as f64
+    // }
+}
+
+impl RandSource for Lcg {
+    fn next(&mut self) -> u32 {
         self.advance_state();
         (self.state.0 >> 16) as u32
-    }
-
-    pub fn pseudo_rand_f32(&mut self) -> f32 {
-        (self.pseudo_rand_u32() % (2 << 23)) as f32 / (2 << 23) as f32
-    }
-
-    pub fn pseudo_rand_u64(&mut self) -> u64 {
-        u64_from_u32s(self.pseudo_rand_u32(), self.pseudo_rand_u32())
-    }
-
-    pub fn pseudo_rand_f64(&mut self) -> f64 {
-        (self.pseudo_rand_u64() % (2u64 << 52)) as f64 / (2u64 << 52) as f64
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct Reflector {
-    pub random: Lcg,
+pub struct Reflector<R: RandSource> {
+    pub random: R,
 }
 
-impl Reflector {
-    pub fn new() -> Self {
-        Self {
-            random: Lcg::from_time(),
-        }
+impl<R: RandSource> Reflector<R> {
+    pub const fn new(random: R) -> Self {
+        Self { random }
     }
 
     fn random_unit(&mut self) -> Vec3 {
-        let dir = self.random.pseudo_rand_f64() * std::f64::consts::TAU;
-        let height = self.random.pseudo_rand_f64() * 2. - 1.;
+        let dir = self.random.rand::<f64>() * std::f64::consts::TAU;
+        let height = self.random.rand::<f64>() * 2. - 1.;
         let (sin, cos) = dir.sin_cos();
         let xz = Vec3::new(cos, 0., sin);
         (1. - height.powi(2)).sqrt() * xz + height * Vec3::Y
@@ -95,5 +98,91 @@ impl Reflector {
         } else {
             unit
         }
+    }
+}
+
+pub trait Rand {
+    fn get(rng: &mut impl RandSource) -> Self;
+}
+
+impl Rand for bool {
+    fn get(rng: &mut impl RandSource) -> Self {
+        (rng.next() & 1) == 1
+    }
+}
+
+impl Rand for u8 {
+    fn get(rng: &mut impl RandSource) -> Self {
+        (rng.next() & 0xFF) as u8
+    }
+}
+
+impl Rand for u16 {
+    fn get(rng: &mut impl RandSource) -> Self {
+        (rng.next() & 0xFFFF) as u16
+    }
+}
+
+impl Rand for u32 {
+    fn get(rng: &mut impl RandSource) -> Self {
+        rng.next()
+    }
+}
+
+impl Rand for u64 {
+    fn get(rng: &mut impl RandSource) -> Self {
+        u64_from_u32s(rng.next(), rng.next())
+    }
+}
+
+impl Rand for i8 {
+    fn get(rng: &mut impl RandSource) -> Self {
+        (rng.next() & 0xFF) as i8
+    }
+}
+
+impl Rand for i16 {
+    fn get(rng: &mut impl RandSource) -> Self {
+        (rng.next() & 0xFFFF) as i16
+    }
+}
+
+impl Rand for i32 {
+    fn get(rng: &mut impl RandSource) -> Self {
+        rng.next() as i32
+    }
+}
+
+impl Rand for i64 {
+    fn get(rng: &mut impl RandSource) -> Self {
+        u64_from_u32s(rng.next(), rng.next()) as i64
+    }
+}
+
+impl Rand for f32 {
+    fn get(rng: &mut impl RandSource) -> Self {
+        (rng.next() % (2 << 23)) as f32 / (2 << 23) as f32
+    }
+}
+
+impl Rand for f64 {
+    fn get(rng: &mut impl RandSource) -> Self {
+        (rng.rand::<u64>() % (2u64 << 52)) as f64 / (2u64 << 52) as f64
+    }
+}
+
+thread_local! {
+    static THREAD_LCG: RefCell<Lcg> = RefCell::new(Lcg::from_time());
+}
+
+pub fn thread_lcg<R: Rand>() -> R {
+    THREAD_LCG.with(|lcg| R::get(&mut *lcg.borrow_mut()))
+}
+
+pub struct ThreadLcg;
+
+impl RandSource for ThreadLcg {
+    fn next(&mut self) -> u32 {
+        thread_lcg()
     }
 }

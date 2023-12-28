@@ -1,4 +1,5 @@
 #![allow(dead_code)]
+use material::DiffuseColorMaterial;
 use shapes::{ColorIndex, VertexIndex};
 use std::{
     fs::{remove_file, File},
@@ -14,12 +15,13 @@ use std::{
 use crate::{
     img::{Color, Image, PPMWriter},
     math::Vec3,
-    rand::Reflector,
+    rand::thread_lcg,
     scene::{Camera, Display, Scene},
     shapes::{InvertedSphere, Shape, Sphere, TriangleMesh},
 };
 
 mod img;
+mod material;
 mod math;
 mod rand;
 mod scene;
@@ -86,7 +88,8 @@ fn my_world() -> impl Shape + Send + Sync {
         0.3,
         Color::from_rgb(0.1, 1., 0.1),
     ));
-    let v: Vec<Box<dyn Shape + Send + Sync>> = vec![cube, outer, sphere, sphere2];
+    let v: Vec<Box<dyn Shape<Material=DiffuseColorMaterial> + Send + Sync>> =
+        vec![cube, outer, sphere, sphere2];
     v
 }
 
@@ -148,7 +151,6 @@ fn draw() {
         let progress_changed = Arc::clone(&progress_changed);
         let scene = Arc::clone(&scene);
         handles.push(thread::spawn(move || {
-            let mut rand = Reflector::new();
             let mut img = Image::zeros(display);
             for (i, (x, y)) in thread_it.enumerate() {
                 if i > 0 && i % (100000 / SAMPLES) == 0 {
@@ -157,10 +159,10 @@ fn draw() {
                 }
                 let color = (0..SAMPLES)
                     .map(|_| {
-                        let x_offset = rand.random.pseudo_rand_f64();
-                        let y_offset = rand.random.pseudo_rand_f64();
+                        let x_offset = thread_lcg::<f64>();
+                        let y_offset = thread_lcg::<f64>();
                         let ray = scene.pixel_ray(x as f64 + x_offset, y as f64 + y_offset);
-                        scene.cast_ray(&mut rand, ray.clone(), BOUNCES)
+                        scene.cast_ray(ray.clone(), BOUNCES)
                     })
                     .fold(Vec3::default(), |s, v| s + v.0);
                 let pixel = img.at_mut(x as usize, y as usize);
@@ -204,7 +206,6 @@ fn draw() {
         "Finished rendering in {:.3?}",
         Instant::now().duration_since(start_time)
     );
-    dbg!();
     let _ = remove_file("img.ppm");
     let mut file = BufWriter::new(File::create("img.ppm").unwrap());
     write!(&mut file, "{}", PPMWriter::from(&main_img)).expect("Expected writing to succeed");

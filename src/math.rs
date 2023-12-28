@@ -522,7 +522,7 @@ impl IndexMut<usize> for Mat3x3 {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Ray {
     pub start: Vec3,
     pub dir: Vec3,
@@ -537,7 +537,11 @@ impl Ray {
         Self::new(start, dir.normalize())
     }
 
-    pub fn translate(&self, scale: f64) -> Vec3 {
+    pub fn translate(&self, scale: f64) -> Ray {
+        Ray::new(self.point_at(scale), self.dir)
+    }
+
+    pub fn point_at(&self, scale: f64) -> Vec3 {
         self.start + self.dir * scale
     }
 }

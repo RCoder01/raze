@@ -11,7 +11,10 @@ Future objectives:
 - [x] Multi-sampling for each pixel
 - [ ] Multiple light sources
 - [ ] Better image format
-- [ ] Specular and diffuse reflections
+- [x] Multiple reflection distributions
+  - [x] Diffuse
+  - [ ] Specular
+  - [ ] ...
 - [ ] More shapes
   - [ ] Planes
   - [ ] Cylinder

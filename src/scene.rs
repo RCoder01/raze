@@ -1,7 +1,7 @@
 use crate::{
     img::Color,
+    material::Material,
     math::{Ray, Vec3},
-    rand::Reflector,
     shapes::Shape,
     EPSILON,
 };
@@ -195,28 +195,34 @@ impl<S: Shape> Scene<S> {
             })
     }
 
-    pub fn cast_ray(&self, rand: &mut Reflector, ray: Ray, bounces: u16) -> Color {
+    pub fn cast_ray(&self, ray: Ray, bounces: u16) -> Color {
         let Some(collision) = self.world.intersect_exclusive(ray.clone()) else {
             return self.background_color;
         };
         if bounces >= 1 {
-            let new_ray = Ray::new(collision.position(), rand.random_diffuse(collision.normal));
-            let light_color = self.cast_ray(rand, new_ray, bounces - 1);
-            return light_color.reflect_on(collision.color);
+            let new_ray = collision
+                .material
+                .update_ray(collision.ray.translate(collision.distance));
+            let light_color = self.cast_ray(new_ray, bounces - 1);
+            return collision.material.update_color(light_color);
         }
         let brightness = self.brightness(collision.reflection())
-            * self.sees_light(collision.position()) as i32 as f64
-            * (collision.position() - self.light_pos).magnitude().powi(-2);
-        Color::gray(brightness).reflect_on(collision.color)
+            * self.sees_light(collision.collision_point()) as i32 as f64
+            * (collision.collision_point() - self.light_pos)
+                .magnitude()
+                .powi(-2);
+        collision.material.update_color(Color::gray(brightness))
     }
 
-    pub fn num_bounces(&self, rand: &mut Reflector, ray: Ray, max_bounces: u16) -> u16 {
+    pub fn num_bounces(&self, ray: Ray, max_bounces: u16) -> u16 {
         let Some(collision) = self.world.intersect_exclusive(ray.clone()) else {
             return 0;
         };
         if max_bounces >= 1 {
-            let new_ray = Ray::new(collision.position(), rand.random_diffuse(collision.normal));
-            return self.num_bounces(rand, new_ray, max_bounces - 1) + 1;
+            let new_ray = collision
+                .material
+                .update_ray(collision.ray.translate(collision.distance));
+            return self.num_bounces(new_ray, max_bounces - 1) + 1;
         }
         1
     }
