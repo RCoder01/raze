@@ -1,5 +1,5 @@
 #![allow(dead_code)]
-use material::DiffuseColorMaterial;
+use material::{ColorMaterial, UniformDiffuse};
 use shapes::{ColorIndex, VertexIndex};
 use std::{
     fs::{remove_file, File},
@@ -14,6 +14,7 @@ use std::{
 
 use crate::{
     img::{Color, Image, PPMWriter},
+    material::Lambertian,
     math::Vec3,
     rand::thread_lcg,
     scene::{Camera, Display, Scene},
@@ -26,6 +27,7 @@ mod math;
 mod rand;
 mod scene;
 mod shapes;
+pub mod utils;
 
 pub const EPSILON: f64 = 1e-5;
 
@@ -34,6 +36,8 @@ fn main() {
 }
 
 fn my_world() -> impl Shape + Send + Sync {
+    type Reflector = Lambertian;
+    const REFLECTOR: Reflector = Lambertian;
     let vertices = vec![
         Vec3::new(1., 1., 1.),
         Vec3::new(1., 1., -1.),
@@ -68,6 +72,7 @@ fn my_world() -> impl Shape + Send + Sync {
         vertices.clone(),
         vec![Color::from_rgb(0.6, 0.4, 0.3)],
         triangles.clone(),
+        REFLECTOR,
     ));
     let outer = Box::new(TriangleMesh::new(
         vertices.into_iter().map(|v| v * 20.).collect(),
@@ -76,19 +81,27 @@ fn my_world() -> impl Shape + Send + Sync {
             .into_iter()
             .map(|([a, b, c], i)| ([c, b, a], i))
             .collect(),
+        REFLECTOR,
     ));
-    let _outer = Box::new(InvertedSphere::new(Vec3::ZERO, 15., Color::WHITE));
+    let _outer = Box::new(InvertedSphere::new(
+        Vec3::ZERO,
+        15.,
+        Color::WHITE,
+        REFLECTOR,
+    ));
     let sphere = Box::new(Sphere::new(
         Vec3::new(0., 0., -0.8),
         1.2,
         Color::from_rgb(0.1, 0.1, 1.),
+        REFLECTOR,
     ));
     let sphere2 = Box::new(Sphere::new(
         Vec3::new(-0.8, 1.2, 0.),
         0.3,
         Color::from_rgb(0.1, 1., 0.1),
+        REFLECTOR,
     ));
-    let v: Vec<Box<dyn Shape<Material=DiffuseColorMaterial> + Send + Sync>> =
+    let v: Vec<Box<dyn Shape<Material = ColorMaterial<Reflector>> + Send + Sync>> =
         vec![cube, outer, sphere, sphere2];
     v
 }
@@ -111,9 +124,16 @@ fn my_scene(display: Display) -> Scene<impl Shape + Send + Sync> {
 }
 
 fn weekend_scene(display: Display) -> Scene<impl Shape + Send + Sync> {
-    const WEEKEND_WORLD: [Sphere; 2] = [
-        Sphere::new(Vec3::new(0., 0., -1.), 0.5, Color::gray(0.5)),
-        Sphere::new(Vec3::new(0., -100.5, -1.), 100., Color::gray(0.5)),
+    type Reflector = UniformDiffuse;
+    const REFLECTOR: Reflector = UniformDiffuse;
+    const WEEKEND_WORLD: [Sphere<Reflector>; 2] = [
+        Sphere::new(Vec3::new(0., 0., -1.), 0.5, Color::gray(0.5), REFLECTOR),
+        Sphere::new(
+            Vec3::new(0., -100.5, -1.),
+            100.,
+            Color::gray(0.5),
+            REFLECTOR,
+        ),
     ];
     Scene {
         display,
@@ -125,7 +145,7 @@ fn weekend_scene(display: Display) -> Scene<impl Shape + Send + Sync> {
             Vec3::Y,
         ),
         light_pos: Vec3::new(0., 0., 0.),
-        world: &WEEKEND_WORLD as &'static [Sphere],
+        world: &WEEKEND_WORLD as &'static [Sphere<Reflector>],
         background_color: Color::from_rgb(0.5, 0.7, 1.),
     }
 }

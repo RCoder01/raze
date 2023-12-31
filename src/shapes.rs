@@ -5,7 +5,7 @@ use std::{
 
 use crate::{
     img::Color,
-    material::{DiffuseColorMaterial, Material},
+    material::{ColorMaterial, Material, Reflector},
     math::{Mat3x3, Ray, Vec3},
     EPSILON,
 };
@@ -106,23 +106,25 @@ where
 }
 
 #[derive(Debug, Clone)]
-pub struct TriangleMesh {
+pub struct TriangleMesh<R: Reflector + Clone> {
     pub vertices: Vec<Vec3>,
     pub triangles: Vec<[u16; 3]>,
     pub tri_colors: Vec<u16>,
     pub triangle_projections: Vec<Mat3x3>,
     pub normals: Vec<Vec3>,
     pub colors: Vec<Color>,
+    pub reflector: R,
 }
 
 pub type VertexIndex = u16;
 pub type ColorIndex = u16;
 
-impl TriangleMesh {
+impl<R: Reflector + Clone> TriangleMesh<R> {
     pub fn new(
         vertices: Vec<Vec3>,
         colors: Vec<Color>,
         triangles: Vec<([VertexIndex; 3], ColorIndex)>,
+        reflector: R,
     ) -> Self {
         let tri_colors = triangles.iter().map(|(_, c)| *c).collect();
         let normals: Vec<_> = triangles
@@ -157,6 +159,7 @@ impl TriangleMesh {
             triangle_projections,
             normals,
             colors,
+            reflector,
         }
     }
 
@@ -165,14 +168,14 @@ impl TriangleMesh {
     // }
 }
 
-impl Shape for TriangleMesh {
-    type Material = DiffuseColorMaterial;
+impl<R: Reflector + Clone> Shape for TriangleMesh<R> {
+    type Material = ColorMaterial<R>;
 
     fn ray_intersection(
         &self,
         ray: Ray,
         include_start: bool,
-    ) -> Option<Collision<DiffuseColorMaterial>> {
+    ) -> Option<Collision<ColorMaterial<R>>> {
         let nearest_collision = self
             .triangles
             .iter()
@@ -213,9 +216,10 @@ impl Shape for TriangleMesh {
         nearest_collision.map(|(i, intersect)| {
             Collision::new(
                 intersect,
-                DiffuseColorMaterial::new(
+                ColorMaterial::new(
                     self.normals[i],
                     self.colors[self.tri_colors[i] as usize],
+                    self.reflector.clone(),
                 ),
             )
         })
@@ -223,18 +227,20 @@ impl Shape for TriangleMesh {
 }
 
 #[derive(Debug, Clone)]
-pub struct Sphere {
+pub struct Sphere<R: Reflector + Clone> {
     pub center: Vec3,
     pub radius: f64,
     pub color: Color,
+    pub reflector: R,
 }
 
-impl Sphere {
-    pub const fn new(center: Vec3, radius: f64, color: Color) -> Self {
+impl<R: Reflector + Clone> Sphere<R> {
+    pub const fn new(center: Vec3, radius: f64, color: Color, reflector: R) -> Self {
         Self {
             center,
             radius,
             color,
+            reflector,
         }
     }
 
@@ -249,8 +255,8 @@ impl Sphere {
     }
 }
 
-impl Shape for Sphere {
-    type Material = DiffuseColorMaterial;
+impl<R: Reflector + Clone> Shape for Sphere<R> {
+    type Material = ColorMaterial<R>;
 
     fn ray_intersection(&self, ray: Ray, include_start: bool) -> Option<Collision<Self::Material>> {
         let (relative_center, cx, root) = self.intersect_equation(ray.clone());
@@ -264,34 +270,34 @@ impl Shape for Sphere {
         let normal = (ray.dir * l - relative_center) / self.radius;
         Some(Collision::new(
             l,
-            DiffuseColorMaterial::new(normal, self.color),
+            ColorMaterial::new(normal, self.color, self.reflector.clone()),
         ))
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct InvertedSphere(Sphere);
+pub struct InvertedSphere<R: Reflector + Clone>(Sphere<R>);
 
-impl InvertedSphere {
-    pub fn new(center: Vec3, radius: f64, color: Color) -> Self {
-        Self(Sphere::new(center, radius, color))
+impl<R: Reflector + Clone> InvertedSphere<R> {
+    pub fn new(center: Vec3, radius: f64, color: Color, reflector: R) -> Self {
+        Self(Sphere::new(center, radius, color, reflector))
     }
 }
 
-impl From<Sphere> for InvertedSphere {
-    fn from(value: Sphere) -> Self {
+impl<R: Reflector + Clone> From<Sphere<R>> for InvertedSphere<R> {
+    fn from(value: Sphere<R>) -> Self {
         Self(value)
     }
 }
 
-impl From<InvertedSphere> for Sphere {
-    fn from(value: InvertedSphere) -> Self {
+impl<R: Reflector + Clone> From<InvertedSphere<R>> for Sphere<R> {
+    fn from(value: InvertedSphere<R>) -> Self {
         value.0
     }
 }
 
-impl Shape for InvertedSphere {
-    type Material = DiffuseColorMaterial;
+impl<R: Reflector + Clone> Shape for InvertedSphere<R> {
+    type Material = ColorMaterial<R>;
 
     fn ray_intersection(&self, ray: Ray, include_start: bool) -> Option<Collision<Self::Material>> {
         let (relative_center, cx, root) = self.0.intersect_equation(ray.clone());
@@ -305,7 +311,7 @@ impl Shape for InvertedSphere {
         let normal = -(ray.dir * l - relative_center) / self.0.radius;
         Some(Collision::new(
             l,
-            DiffuseColorMaterial::new(normal, self.0.color),
+            ColorMaterial::new(normal, self.0.color, self.0.reflector.clone()),
         ))
     }
 }
