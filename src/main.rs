@@ -13,7 +13,10 @@ use std::{
 };
 
 use crate::{
-    img::{Color, Image, PPMWriter},
+    img::{
+        writer::{ImageWriter, QOIWriter},
+        Color, Image, PPMWriter,
+    },
     material::Lambertian,
     math::Vec3,
     rand::thread_lcg,
@@ -226,9 +229,15 @@ fn draw() {
         "Finished rendering in {:.3?}",
         Instant::now().duration_since(start_time)
     );
-    let _ = remove_file("img.ppm");
-    let mut file = BufWriter::new(File::create("img.ppm").unwrap());
-    write!(&mut file, "{}", PPMWriter::from(&main_img)).expect("Expected writing to succeed");
+    const FILE_STEM: &'static str = "img";
+    let writer = QOIWriter::from(&main_img);
+    // let writer = PPMWriter::from(&main_img);
+    let file_name = format!("{}.{}", FILE_STEM, writer.extension().unwrap());
+    let _ = remove_file(&file_name);
+    let mut file = BufWriter::new(File::create(&file_name).unwrap());
+    writer
+        .write_to(&mut file)
+        .expect("Expected writing to succeed");
 }
 
 fn color_correction(input: Color) -> Color {

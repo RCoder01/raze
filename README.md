@@ -10,12 +10,23 @@ Future objectives:
 - [x] Multi-bounce rays
 - [x] Multi-sampling for each pixel
 - [ ] Multiple light sources
-- [ ] Better image format
+- [X] Better image format
+  - [x] qoi
+  - [ ] png?
+  - [ ] jpeg?
+- [ ] Scene format
+  - [ ] PBRT scene
+  - [ ] GLTF
+  - [ ] CAD?
 - [x] Multiple reflection distributions
   - [x] Diffuse
   - [ ] Specular
   - [ ] ...
-- [ ] More shapes
+- [ ] Shapes
+  - [x] Sphere
+  - [x] Triangle
+  - [ ] Quad
+  - [ ] n-gon
   - [ ] Planes
   - [ ] Cylinder
   - [ ] ...
