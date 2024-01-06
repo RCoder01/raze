@@ -18,7 +18,15 @@ impl Display {
     }
 
     pub fn size(&self) -> usize {
-        self.x as usize * self.y as usize
+        self.x() * self.y()
+    }
+
+    pub fn x(&self) -> usize {
+        self.x as usize
+    }
+
+    pub fn y(&self) -> usize {
+        self.y as usize
     }
 }
 

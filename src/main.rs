@@ -4,12 +4,9 @@ use shapes::{ColorIndex, VertexIndex};
 use std::{
     fs::{remove_file, File},
     io::{BufWriter, Write},
-    sync::{
-        atomic::{AtomicBool, AtomicUsize, Ordering},
-        Arc,
-    },
+    sync::Arc,
     thread,
-    time::{Duration, Instant},
+    time::Instant,
 };
 
 use crate::{
@@ -22,6 +19,7 @@ use crate::{
     rand::thread_lcg,
     scene::{Camera, Display, Scene},
     shapes::{InvertedSphere, Shape, Sphere, TriangleMesh},
+    utils::{CartesianProduct, RangeChunks},
 };
 
 mod img;
@@ -160,57 +158,72 @@ fn draw() {
     const SAMPLES: usize = 100;
     const BOUNCES: u16 = 50;
     const THREADS: usize = 16;
-    let len = display.size();
-    let mut it = display.into_iter();
-    let per_thread = (len + 1) / THREADS + 1;
-    let progress_changed = Arc::new(AtomicBool::new(true));
-    let progress = Arc::new(AtomicUsize::new(0));
     let mut handles = Vec::with_capacity(THREADS);
     let mut main_img = Image::zeros(display);
-    for _ in 0..THREADS {
-        let thread_it = it.take(per_thread);
-        it.nth(per_thread - 1);
-        let progress = Arc::clone(&progress);
-        let progress_changed = Arc::clone(&progress_changed);
+    let (main_tx, main_rx) = std::sync::mpsc::sync_channel(THREADS);
+    let mut thread_txs = Vec::new();
+    for thread_idx in 0..THREADS {
         let scene = Arc::clone(&scene);
+        let (thread_tx, thread_rx) = std::sync::mpsc::sync_channel(1);
+        thread_txs.push(thread_tx);
+        let main_tx = main_tx.clone();
         handles.push(thread::spawn(move || {
             let mut img = Image::zeros(display);
-            for (i, (x, y)) in thread_it.enumerate() {
-                if i > 0 && i % (100000 / SAMPLES) == 0 {
-                    progress.fetch_add(100000 / SAMPLES, Ordering::Release);
-                    progress_changed.store(true, Ordering::Release);
+            while let Ok(Some(chunk)) = thread_rx.recv() {
+                for (x, y) in chunk {
+                    let color = (0..SAMPLES)
+                        .map(|_| {
+                            let x_offset = thread_lcg::<f64>();
+                            let y_offset = thread_lcg::<f64>();
+                            let ray = scene.pixel_ray(x as f64 + x_offset, y as f64 + y_offset);
+                            scene.cast_ray(ray.clone(), BOUNCES)
+                        })
+                        .fold(Vec3::default(), |s, v| s + v.0);
+                    let pixel = img.at_mut(x as usize, y as usize);
+                    *pixel = (color / SAMPLES as f64).into();
                 }
-                let color = (0..SAMPLES)
-                    .map(|_| {
-                        let x_offset = thread_lcg::<f64>();
-                        let y_offset = thread_lcg::<f64>();
-                        let ray = scene.pixel_ray(x as f64 + x_offset, y as f64 + y_offset);
-                        scene.cast_ray(ray.clone(), BOUNCES)
-                    })
-                    .fold(Vec3::default(), |s, v| s + v.0);
-                let pixel = img.at_mut(x as usize, y as usize);
-                *pixel = (color / SAMPLES as f64).into();
+                main_tx
+                    .try_send(thread_idx)
+                    .expect("Thread queue should be empty and main rx should not be dropped");
             }
-            progress_changed.store(true, Ordering::Release);
             img
         }));
     }
-    for handle in handles {
-        while !handle.is_finished() {
-            if progress_changed.load(Ordering::Acquire) {
-                progress_changed.store(false, Ordering::Release);
-                let progress = progress.load(Ordering::Acquire);
-                print!(
-                    "Progress in {:.2?}: {}/{} ({:.2}%)\r",
-                    Instant::now().duration_since(start_time),
-                    progress * SAMPLES,
-                    len * SAMPLES,
-                    progress as f64 / len as f64 * 100.
-                );
-                let _ = std::io::stdout().flush();
-                thread::sleep(Duration::from_millis(100));
-            }
+    drop(main_tx);
+    let x_chunk_iter = RangeChunks::new(0..display.x(), (display.x() + 1) / THREADS + 1);
+    let y_chunk_iter = RangeChunks::new(0..display.y(), (display.y() + 1) / THREADS + 1);
+    let mut chunks_iter =
+        CartesianProduct::new(x_chunk_iter, y_chunk_iter).map(|(x, y)| CartesianProduct::new(x, y));
+    let (_, len) = chunks_iter.size_hint();
+    for thread_tx in &thread_txs {
+        thread_tx
+            .try_send(chunks_iter.next())
+            .expect("Thread queue should be empty and thread rx should not be dropped");
+    }
+    let mut dispatched_chunks = 0;
+    while let Ok(waiting_thread_idx) = main_rx.recv() {
+        thread_txs[waiting_thread_idx]
+            .try_send(chunks_iter.next())
+            .expect("Thread queue should be empty and thread rx should not be dropped");
+        dispatched_chunks += 1;
+        if let Some(len) = len {
+            print!(
+                "Progress in {:.2?}: {}/{} ({:.2}%)\r",
+                Instant::now().duration_since(start_time),
+                dispatched_chunks,
+                len,
+                dispatched_chunks as f64 / len as f64 * 100.
+            );
+        } else {
+            print!(
+                "Progress in {:.2?}: {}\r",
+                Instant::now().duration_since(start_time),
+                dispatched_chunks
+            );
         }
+        let _ = std::io::stdout().flush();
+    }
+    for handle in handles {
         let img = handle.join().expect("Threads should not panic");
         for (main, thread) in main_img.data_mut().iter_mut().zip(img.data()) {
             if main.0 == Color::BLACK.0 {
