@@ -4,8 +4,11 @@ use shapes::{ColorIndex, VertexIndex};
 use std::{
     fs::{remove_file, File},
     io::{BufWriter, Write},
-    sync::Arc,
-    thread,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc, Mutex,
+    },
+    thread::{self, JoinHandle},
     time::Instant,
 };
 
@@ -160,16 +163,20 @@ fn draw() {
     const THREADS: usize = 16;
     let mut handles = Vec::with_capacity(THREADS);
     let mut main_img = Image::zeros(display);
-    let (main_tx, main_rx) = std::sync::mpsc::sync_channel(THREADS);
-    let mut thread_txs = Vec::new();
-    for thread_idx in 0..THREADS {
+    let x_chunk_iter = RangeChunks::new(0..display.x(), (display.x() + 1) / THREADS + 1);
+    let y_chunk_iter = RangeChunks::new(0..display.y(), (display.y() + 1) / THREADS + 1);
+    let chunks_iter =
+        CartesianProduct::new(x_chunk_iter, y_chunk_iter).map(|(x, y)| CartesianProduct::new(x, y));
+    let (_, len) = chunks_iter.size_hint();
+    let chunks_iter = Arc::new(Mutex::new(chunks_iter));
+    let progress = Arc::new(AtomicUsize::new(0));
+    for _thread_idx in 0..THREADS {
         let scene = Arc::clone(&scene);
-        let (thread_tx, thread_rx) = std::sync::mpsc::sync_channel(1);
-        thread_txs.push(thread_tx);
-        let main_tx = main_tx.clone();
+        let chunks_iter = Arc::clone(&chunks_iter);
+        let progress = Arc::clone(&progress);
         handles.push(thread::spawn(move || {
             let mut img = Image::zeros(display);
-            while let Ok(Some(chunk)) = thread_rx.recv() {
+            while let Ok(Some(chunk)) = chunks_iter.lock().map(|mut c| c.next()) {
                 for (x, y) in chunk {
                     let color = (0..SAMPLES)
                         .map(|_| {
@@ -182,46 +189,14 @@ fn draw() {
                     let pixel = img.at_mut(x as usize, y as usize);
                     *pixel = (color / SAMPLES as f64).into();
                 }
-                main_tx
-                    .try_send(thread_idx)
-                    .expect("Thread queue should be empty and main rx should not be dropped");
+                progress.fetch_add(1, Ordering::Release);
             }
             img
         }));
     }
-    drop(main_tx);
-    let x_chunk_iter = RangeChunks::new(0..display.x(), (display.x() + 1) / THREADS + 1);
-    let y_chunk_iter = RangeChunks::new(0..display.y(), (display.y() + 1) / THREADS + 1);
-    let mut chunks_iter =
-        CartesianProduct::new(x_chunk_iter, y_chunk_iter).map(|(x, y)| CartesianProduct::new(x, y));
-    let (_, len) = chunks_iter.size_hint();
-    for thread_tx in &thread_txs {
-        thread_tx
-            .try_send(chunks_iter.next())
-            .expect("Thread queue should be empty and thread rx should not be dropped");
-    }
-    let mut dispatched_chunks = 0;
-    while let Ok(waiting_thread_idx) = main_rx.recv() {
-        thread_txs[waiting_thread_idx]
-            .try_send(chunks_iter.next())
-            .expect("Thread queue should be empty and thread rx should not be dropped");
-        dispatched_chunks += 1;
-        if let Some(len) = len {
-            print!(
-                "Progress in {:.2?}: {}/{} ({:.2}%)\r",
-                Instant::now().duration_since(start_time),
-                dispatched_chunks,
-                len,
-                dispatched_chunks as f64 / len as f64 * 100.
-            );
-        } else {
-            print!(
-                "Progress in {:.2?}: {}\r",
-                Instant::now().duration_since(start_time),
-                dispatched_chunks
-            );
-        }
-        let _ = std::io::stdout().flush();
+    while !handles.iter().all(JoinHandle::is_finished) {
+        thread::sleep(std::time::Duration::from_millis(10));
+        print_progress(len, progress.load(Ordering::Acquire), start_time);
     }
     for handle in handles {
         let img = handle.join().expect("Threads should not panic");
@@ -239,7 +214,7 @@ fn draw() {
         *color = color_correction((color.0 / brightest).into())
     }
     println!(
-        "Finished rendering in {:.3?}",
+        "\nFinished rendering in {:.3?}",
         Instant::now().duration_since(start_time)
     );
     const FILE_STEM: &'static str = "img";
@@ -255,4 +230,23 @@ fn draw() {
 
 fn color_correction(input: Color) -> Color {
     Vec3::new(input.0.x.sqrt(), input.0.y.sqrt(), input.0.z.sqrt()).into()
+}
+
+fn print_progress(len: Option<usize>, progress: usize, start_time: Instant) {
+    if let Some(len) = len {
+        print!(
+            "Progress in {:.2?}: {}/{} ({:.2}%)            \r",
+            Instant::now().duration_since(start_time),
+            progress,
+            len,
+            progress as f64 / len as f64 * 100.
+        );
+    } else {
+        print!(
+            "Progress in {:.2?}: {}              \r",
+            Instant::now().duration_since(start_time),
+            progress
+        );
+    }
+    let _ = std::io::stdout().flush();
 }
