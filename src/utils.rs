@@ -62,7 +62,7 @@ where
         if bc_max.is_none() || b_max.is_none() || a_max.is_none() {
             return (min, None);
         }
-        return (min, Some(bc_max.unwrap() + b_max.unwrap() * a_max.unwrap()));
+        (min, Some(bc_max.unwrap() + b_max.unwrap() * a_max.unwrap()))
     }
 }
 

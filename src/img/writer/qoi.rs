@@ -64,7 +64,7 @@ impl QOIColor {
             let second_byte = ((drdg + 8) as u8 & 0b1111) << 4 | ((dbdg + 8) as u8 & 0b1111);
             return ColorDiff::Medium([first_byte, second_byte]);
         }
-        return ColorDiff::Large;
+        ColorDiff::Large
     }
 }
 
@@ -79,10 +79,10 @@ impl<'a> From<&'a Image> for QOIWriter<'a> {
 
 impl<'a> ImageWriter for QOIWriter<'a> {
     fn write_to<W: Write>(&self, writer: &mut W) -> std::io::Result<()> {
-        writer.write(b"qoif")?;
-        writer.write(&(self.0.width() as u32).to_be_bytes())?;
-        writer.write(&(self.0.height() as u32).to_be_bytes())?;
-        writer.write(&[3, 0])?;
+        writer.write_all(b"qoif")?;
+        writer.write_all(&(self.0.width() as u32).to_be_bytes())?;
+        writer.write_all(&(self.0.height() as u32).to_be_bytes())?;
+        writer.write_all(&[3, 0])?;
         let mut index = [QOIColor::default(); 64];
         let mut prev_color = QOIColor::default();
         let mut run = 0;
@@ -92,19 +92,19 @@ impl<'a> ImageWriter for QOIWriter<'a> {
                 run += 1;
                 if run == 62 {
                     // println!("Run of {} ({:02X})", run, QOI_OP_RUN | (run - 1));
-                    writer.write(&[QOI_OP_RUN | (run - 1)])?;
+                    writer.write_all(&[QOI_OP_RUN | (run - 1)])?;
                     run = 0;
                 }
                 continue;
             }
             if run != 0 {
                 // println!("Run of {} ({:02X})", run, QOI_OP_RUN | (run - 1));
-                writer.write(&[QOI_OP_RUN | (run - 1)])?;
+                writer.write_all(&[QOI_OP_RUN | (run - 1)])?;
                 run = 0;
             }
             if index[color.hash() as usize] == color {
                 // println!("Hash of {} ({:02X})", color.hash(), QOI_OP_INDEX | color.hash());
-                writer.write(&[QOI_OP_INDEX | color.hash()])?;
+                writer.write_all(&[QOI_OP_INDEX | color.hash()])?;
                 prev_color = color;
                 continue;
             }
@@ -112,24 +112,24 @@ impl<'a> ImageWriter for QOIWriter<'a> {
             match color.difference(prev_color) {
                 ColorDiff::Small(byte) => {
                     // println!("small diff {:02X}", byte);
-                    writer.write(&[byte])?;
+                    writer.write_all(&[byte])?;
                 }
                 ColorDiff::Medium([b1, b2]) => {
                     // println!("medium diff {:02X} {:02X}", b1, b2);
-                    writer.write(&[b1, b2])?;
+                    writer.write_all(&[b1, b2])?;
                 }
                 ColorDiff::Large => {
                     // println!("large diff {:?}", color);
-                    writer.write(&[QOI_OP_RGB, color.r, color.g, color.b])?;
+                    writer.write_all(&[QOI_OP_RGB, color.r, color.g, color.b])?;
                 }
             }
             prev_color = color;
         }
         if run != 0 {
             // println!("Run of {} ({:02X})", run, QOI_OP_RUN | (run - 1));
-            writer.write(&[QOI_OP_RUN | (run - 1)])?;
+            writer.write_all(&[QOI_OP_RUN | (run - 1)])?;
         }
-        writer.write(&0x0000_0000_0000_0001u64.to_be_bytes())?;
+        writer.write_all(&0x0000_0000_0000_0001u64.to_be_bytes())?;
         Ok(())
     }
 

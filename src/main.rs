@@ -31,7 +31,7 @@ mod math;
 mod rand;
 mod scene;
 mod shapes;
-pub mod utils;
+mod utils;
 
 pub const EPSILON: f64 = 1e-5;
 
@@ -186,7 +186,7 @@ fn draw() {
                             scene.cast_ray(ray.clone(), BOUNCES)
                         })
                         .fold(Vec3::default(), |s, v| s + v.0);
-                    let pixel = img.at_mut(x as usize, y as usize);
+                    let pixel = img.at_mut(x, y);
                     *pixel = (color / SAMPLES as f64).into();
                 }
                 progress.fetch_add(1, Ordering::Release);
@@ -217,7 +217,7 @@ fn draw() {
         "\nFinished rendering in {:.3?}",
         Instant::now().duration_since(start_time)
     );
-    const FILE_STEM: &'static str = "img";
+    const FILE_STEM: &str = "img";
     let writer = QOIWriter::from(&main_img);
     // let writer = PPMWriter::from(&main_img);
     let file_name = format!("{}.{}", FILE_STEM, writer.extension().unwrap());

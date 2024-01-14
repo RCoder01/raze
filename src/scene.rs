@@ -126,17 +126,24 @@ pub struct Camera {
     pub pos: Vec3,
     pub forward: Vec3,
     pub up: Vec3,
+    max_left: Vec3,
+    max_up: Vec3,
 }
 
 impl Camera {
     pub fn new(xfov: f64, yfov: f64, pos: Vec3, forward: Vec3, up: Vec3) -> Self {
-        Self {
+        let mut cam = Self {
             xfov,
             yfov,
             pos,
             forward: forward.normalize(),
             up: up.normalize(),
-        }
+            max_left: Vec3::ZERO,
+            max_up: Vec3::ZERO,
+        };
+        cam.max_left = cam.calc_max_left();
+        cam.max_up = cam.calc_max_up();
+        cam
     }
 
     pub fn from_display(xfov: f64, display: Display, pos: Vec3, forward: Vec3, up: Vec3) -> Self {
@@ -153,16 +160,24 @@ impl Camera {
         self.up.cross(self.forward)
     }
 
-    pub fn max_left_deflection(&self) -> Vec3 {
+    fn calc_max_left(&self) -> Vec3 {
         let (facing_left_x, facing_left_z) = self.xfov.to_radians().sin_cos();
         let max_deflection = facing_left_x / facing_left_z;
         max_deflection * self.left()
     }
 
-    pub fn max_up_deflection(&self) -> Vec3 {
+    fn calc_max_up(&self) -> Vec3 {
         let (facing_top_y, facing_top_z) = self.yfov.to_radians().sin_cos();
         let up_deflection = facing_top_y / facing_top_z;
         up_deflection * self.up
+    }
+
+    pub fn max_left_deflection(&self) -> Vec3 {
+        self.max_left
+    }
+
+    pub fn max_up_deflection(&self) -> Vec3 {
+        self.max_up
     }
 }
 
